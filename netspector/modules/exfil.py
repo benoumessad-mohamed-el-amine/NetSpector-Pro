@@ -1,4 +1,4 @@
-"""Module: Data Exfiltration & DNS Tunneling Inspector."""
+"""Module 5: Data Exfiltration & Volume Skew Detector."""
 
 from typing import Any, Dict, List
 from netspector.model import Alert, Flow, KillChainStage, PacketRef, Severity
@@ -9,13 +9,13 @@ class ExfiltrationModule(BaseModule):
     """Detects outbound volume anomalies and DNS tunneling payload exfiltration."""
 
     def __init__(self):
-        super().__init__("exfiltration")
+        super().__init__("exfil")
         self.min_exfil_bytes: int = 5_000_000  # 5 MB threshold
         self.max_ratio: float = 10.0
         self.alerted_flows: set[str] = set()
 
     def configure(self, rules: Dict[str, Any]):
-        cfg = rules.get("exfiltration", {})
+        cfg = rules.get("exfil", rules.get("exfiltration", {}))
         self.min_exfil_bytes = cfg.get("min_exfil_bytes", 5_000_000)
         self.max_ratio = cfg.get("max_ratio", 10.0)
 
@@ -60,7 +60,6 @@ class ExfiltrationModule(BaseModule):
         if flow.flow_id in self.alerted_flows:
             return []
 
-        # Evaluate total byte volume and ratio on flow close
         if flow.byte_count >= self.min_exfil_bytes:
             self.alerted_flows.add(flow.flow_id)
             alert = Alert(

@@ -357,5 +357,6 @@ def decode_packet(raw_data: bytes, linktype: int = LINKTYPE_ETHERNET) -> Optiona
         "dns_qname": dns_info.get("qname"),
         "dns_qtype": dns_info.get("qtype"),
         "tls_info": tls_info,
+        "raw_payload": payload,
         "payload_len": len(payload),
     }

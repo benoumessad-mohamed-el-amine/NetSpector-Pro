@@ -110,7 +110,7 @@ class PcapngReader:
                     )
                     flow_id = flow_key_to_str(flow_key)
 
-                    yield PacketRef(
+                    pkt_ref = PacketRef(
                         ts_us=ts_us,
                         file_offset=offset,
                         caplen=caplen,
@@ -129,3 +129,5 @@ class PcapngReader:
                         tls_info=decoded.get("tls_info"),
                         payload_len=decoded.get("payload_len", 0),
                     )
+                    pkt_ref._raw_payload = decoded.get("raw_payload")
+                    yield pkt_ref

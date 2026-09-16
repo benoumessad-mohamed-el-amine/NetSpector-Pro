@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from netspector.carve import build_pcapng_epb_with_comment
 from netspector.model import Alert, Flow, KillChainStage, PacketRef, Severity
-from netspector.modules.exfiltration import ExfiltrationModule
+from netspector.modules.exfil import ExfiltrationModule
 from netspector.modules.ja3_fingerprint import Ja3FingerprintModule, calculate_ja3_fingerprint, calculate_ja4_fingerprint
 from netspector.report.stix_export import export_stix21_bundle
 

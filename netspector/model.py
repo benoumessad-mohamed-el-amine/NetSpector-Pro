@@ -49,6 +49,7 @@ class PacketRef:
         'dns_qname',
         'dns_qtype',
         'tls_info',
+        '_raw_payload',
         'payload_len',
     )
 

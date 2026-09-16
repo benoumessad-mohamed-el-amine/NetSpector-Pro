@@ -1,4 +1,4 @@
-# NetSpector Pro Default Forensic Detection Rules Configuration
+# NetSpector Pro Default Master Architectural Rules Configuration
 
 beacon:
   enabled: true
@@ -7,22 +7,15 @@ beacon:
   max_mad_ratio: 0.25
   min_duration_sec: 10.0
 
-entropy:
+credentials:
   enabled: true
-  entropy_threshold: 3.8
-  consonant_cluster_len: 5
-  min_subdomain_len: 8
-
-tcpstate:
-  enabled: true
-  syn_scan_threshold: 10
-  flag_anomalies_enabled: true
 
 lateral:
   enabled: true
   fanout_threshold: 15
   high_risk_ports:
     - 22
+    - 88
     - 135
     - 139
     - 445
@@ -34,3 +27,29 @@ lateral:
     - "172.16.0.0/12"
     - "192.168.0.0/16"
     - "127.0.0.0/8"
+
+exfil:
+  enabled: true
+  min_exfil_bytes: 5000000
+  max_ratio: 10.0
+
+entropy:
+  enabled: true
+  entropy_threshold: 3.8
+  consonant_cluster_len: 5
+  min_subdomain_len: 8
+
+sweep:
+  enabled: true
+  sweep_threshold: 10
+
+http_audit:
+  enabled: true
+
+ja3_fingerprint:
+  enabled: true
+
+tcpstate:
+  enabled: true
+  syn_scan_threshold: 10
+  flag_anomalies_enabled: true

@@ -15,10 +15,13 @@ from netspector.correlate import AttackChainStitcher
 from netspector.flows import FlowTable
 from netspector.model import Alert, Severity
 from netspector.modules.beacon import C2BeaconModule
+from netspector.modules.credentials import CleartextCredentialsModule
 from netspector.modules.entropy import DnsEntropyModule
-from netspector.modules.exfiltration import ExfiltrationModule
+from netspector.modules.exfil import ExfiltrationModule
+from netspector.modules.http_audit import HttpAuditModule
 from netspector.modules.ja3_fingerprint import Ja3FingerprintModule
 from netspector.modules.lateral import LateralMovementModule
+from netspector.modules.sweep import SubnetSweepModule
 from netspector.modules.tcpstate import TcpStateModule
 from netspector.report import export_json_report, render_static_html, render_text_report, start_web_dashboard
 from netspector.report.stix_export import export_stix21_bundle
@@ -39,7 +42,7 @@ def create_pcap_reader(filepath: str):
 def main():
     parser = argparse.ArgumentParser(
         prog="netspector",
-        description="NetSpector Pro - Offline Automated Forensic PCAP & Network Triage Tool",
+        description="NetSpector Pro - Offline Automated Forensic PCAP & Network Triage Engine",
     )
 
     parser.add_argument("pcap_file", nargs="?", help="Path to input PCAP or PCAPNG binary capture file", default=None)
@@ -78,16 +81,19 @@ def main():
         if os.path.isfile(default_yaml_path):
             rules_cfg = load_yaml_file(default_yaml_path)
 
-    # 2. Initialize Core Engine & Modules
+    # 2. Initialize Core LRU Flow Engine & Detection Modules
     flow_table = FlowTable(max_capacity=args.capacity)
 
     modules = [
         C2BeaconModule(),
-        DnsEntropyModule(),
-        TcpStateModule(),
+        CleartextCredentialsModule(),
         LateralMovementModule(),
-        Ja3FingerprintModule(),
         ExfiltrationModule(),
+        DnsEntropyModule(),
+        SubnetSweepModule(),
+        HttpAuditModule(),
+        Ja3FingerprintModule(),
+        TcpStateModule(),
     ]
 
     for m in modules:
