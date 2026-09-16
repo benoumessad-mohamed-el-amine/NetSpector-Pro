@@ -23,20 +23,22 @@ NetSpector Pro is a high-precision forensic co-pilot built for Incident Response
 
 ---
 
-## 🛡️ The 10 Automated Forensic Triage Engines
+## 🛡️ The 12 Automated Forensic Triage Engines
 
 | Engine | Module | Forensic Detection Capability |
 | :--- | :--- | :--- |
 | **1. TCP Session Reassembly** | `flows.py` | Stateful canonical 5-tuple LRU flow tracking, bidirectional stream indexing, and connection metrics. |
-| **2. C2 Beaconing Analyzer** | `beacon.py` | Detects periodic command-and-control implant timing regularity and automated beaconing intervals ($N \ge 12$). |
+| **2. C2 Beaconing Analyzer** | `beacon.py` | Detects periodic command-and-control implant timing regularity and automated beaconing intervals ($N \ge 12$) with transport keepalive filtering. |
 | **3. Cleartext Credential Sniffer** | `credentials.py` | Extracts exposed authentication strings over unencrypted protocols (HTTP Basic Auth, FTP, Telnet, POP3, SMTP). |
 | **4. Lateral Movement Tracker** | `lateral.py` | Flags internal host fan-out pivoting over administrative management ports (SMB 445, RDP 3389, WinRM 5985, SSH 22, RPC 135). |
-| **5. Data Exfiltration Inspector** | `exfil.py` | Identifies large outbound data transfers, volume skew anomalies, and DNS tunneling payload streams. |
-| **6. DGA & Subdomain Inspector** | `entropy.py` | Detects Domain Generation Algorithms (DGA), randomized DNS queries, and anomalous consonant cluster runs ($H(S) \ge 3.8$). **Mandatory Whitelisting:** Suppresses Active Directory SRV noise (`_ldap._tcp`, `_kerberos._tcp`, `_sites.dc._msdcs`) to ensure zero AD false positives. |
+| **5. Data Exfiltration Inspector** | `exfil.py` | Identifies large outbound data transfers, volume skew anomalies, and asymmetric exfiltration streams. |
+| **6. DGA & Subdomain Inspector** | `entropy.py` | Detects Domain Generation Algorithms (DGA), randomized DNS queries, and anomalous consonant cluster runs ($H(S) \ge 3.8$). **Mandatory Whitelisting:** Suppresses Active Directory SRV noise (`_ldap._tcp`, `_kerberos._tcp`) and cloud telemetry domains (`.microsoft.com`, `.googleapis.com`, `.azure.com`, `.amazonaws.com`). |
 | **7. Subnet Sweep Detector** | `sweep.py` | Uncovers horizontal reconnaissance sweeps across internal subnets and stateful TCP port scans ($N \ge 10$). |
 | **8. HTTP & Web Shell Auditor** | `http_audit.py` | Flags script-based User-Agents (`curl`, `python-requests`, `powershell`), dangerous HTTP methods (`PUT`, `PROPFIND`), and web shell execution paths. |
 | **9. TLS JA3/JA4 Fingerprinter** | `ja3_fingerprint.py` | Decodes TLS Client Hello records, generates JA3/JA4 fingerprints, and matches known malware signatures (Cobalt Strike, AsyncRAT, Metasploit, Sliver). |
-| **10. TCP State Machine Auditor** | `tcpstate.py` | Audits TCP connection state transitions and flags stealth scan bitmasks (NULL, XMAS, FIN). |
+| **10. File Carver & Magic Bytes** | `file_carver.py` | Scans payload streams for binary file signatures (`MZ` PE, `PK` ZIP, `%PDF-`, `\x7fELF`, `Rar!`, `7z`) transferred over unencrypted channels. |
+| **11. SMB / RPC Pipe Auditor** | `smb_audit.py` | Deep-dives into SMB sessions to detect access to dangerous exploitation named pipes (`\pipe\svcctl`, `\pipe\samr`, `\pipe\lsarpc`) and administrative shares (`ADMIN$`, `C$`). |
+| **12. Advanced DNS Tunneling** | `dns_tunnel.py` | Analyzes anomalous DNS record type distributions (`TXT`, `CNAME`, `NULL`, `MX`) and high-entropy request repetition ratios ($N \ge 8$). |
 
 ---
 

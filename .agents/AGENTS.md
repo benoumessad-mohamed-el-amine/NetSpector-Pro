@@ -16,18 +16,20 @@
    - Flow key format: `proto:min(ip1,port1)<->max(ip2,port2)` (bidirectional mapping).
 4. **Strict-Subset YAML Parser:**
    - `netspector/rules/yamlsub.py`: Hand-rolled YAML parser with line-numbered error diagnostics (`YAMLParseError`).
-5. **The 10 Automated Forensic Triage Engines (`netspector/modules/`):**
+5. **The 12 Automated Forensic Triage Engines (`netspector/modules/`):**
    - Contract: `configure(rules)`, `on_packet(pkt, flow)`, `on_flow_close(flow)`, `finalize()`.
    - **Engine 1 (`flows.py`):** TCP Session Reassembly & Flow Indexing.
    - **Engine 2 (`beacon.py`):** C2 Beaconing & Jitter Analyzer ($CoV = \sigma / \mu \le 0.20$, $MAD / M \le 0.25$, $N \ge 12$).
    - **Engine 3 (`credentials.py`):** Cleartext Credential Sniffer (HTTP Basic Auth, FTP, Telnet, POP3, SMTP).
    - **Engine 4 (`lateral.py`):** Lateral Movement Fan-Out Tracker (SMB 445, RDP 3389, WinRM 5985, SSH 22).
    - **Engine 5 (`exfil.py`):** Data Exfiltration & Volume Skew.
-   - **Engine 6 (`entropy.py`):** Shannon Entropy & DGA Detector ($H(S) \ge 3.8$). Enforces mandatory Active Directory & infrastructure prefix/domain whitelisting (`_ldap._tcp`, `_kerberos._tcp`, `_sites.dc._msdcs`, `.in-addr.arpa`) to eliminate enterprise false positives.
+   - **Engine 6 (`entropy.py`):** Shannon Entropy & DGA Detector ($H(S) \ge 3.8$). Enforces mandatory Active Directory & cloud telemetry domain whitelisting (`_ldap._tcp`, `.microsoft.com`, `.googleapis.com`, `.azure.com`, `.amazonaws.com`).
    - **Engine 7 (`sweep.py`):** Stealth Port Scan & Subnet Sweep Detector ($N \ge 10$ target IPs).
    - **Engine 8 (`http_audit.py`):** HTTP Profiling & Web Shell Auditor (`curl`, `python-requests`, dangerous methods `PUT`/`PROPFIND`, web shell paths).
    - **Engine 9 (`ja3_fingerprint.py`):** JA3 & JA4 TLS Client Hello Fingerprinting & Threat Intel signatures.
-   - **Engine 10 (`tcpstate.py`):** TCP State Machine Auditor & flag anomalies (NULL, XMAS, FIN).
+   - **Engine 10 (`file_carver.py`):** File Carving & Magic Byte Inspector (`MZ` PE, `PK` ZIP, `%PDF-`, `\x7fELF`, `Rar!`, `7z`).
+   - **Engine 11 (`smb_audit.py`):** SMB / RPC Named Pipe Auditor (`\pipe\svcctl`, `\pipe\samr`, `\pipe\lsarpc`) & admin shares (`ADMIN$`, `C$`).
+   - **Engine 12 (`dns_tunnel.py`):** Advanced DNS Tunneling Payload Inspector (TXT/CNAME/NULL record distribution & repetition ratios).
 6. **Timeline Stitcher & PCAPNG Carver with Comment Injection:**
    - `netspector/correlate.py`: Entity graph & Cyber Kill Chain timeline stitcher with plausibility scoring.
    - `netspector/carve.py`: Fast binary seek-and-copy PCAP packet carver with option comment injection (`opt_comment`) for Wireshark details panel.

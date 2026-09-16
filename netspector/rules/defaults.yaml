@@ -53,3 +53,15 @@ tcpstate:
   enabled: true
   syn_scan_threshold: 10
   flag_anomalies_enabled: true
+
+file_carver:
+  enabled: true
+
+smb_audit:
+  enabled: true
+
+dns_tunnel:
+  enabled: true
+  min_queries: 8
+  min_avg_subdomain_len: 20.0
+

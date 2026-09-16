@@ -316,38 +316,92 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
     </div>
 
-    <div class="section-title">
-        <span>Attack Chain Narrative & Entity Graph</span>
-    </div>
-    <div id="entities-container"></div>
-
-    <div class="section-title" style="margin-top: 32px;">
-        <span>Detailed Forensic Alerts</span>
+    <!-- Tab Navigation Bar -->
+    <div style="display: flex; gap: 12px; margin-bottom: 24px; border-bottom: 1px solid var(--card-border); padding-bottom: 12px;">
+        <button id="tab-btn-alerts" class="filter-btn active" style="font-size: 13px; padding: 8px 18px;" onclick="switchTab('tab-alerts')">🛡️ Forensic Alerts & Attack Chains</button>
+        <button id="tab-btn-dns" class="filter-btn" style="font-size: 13px; padding: 8px 18px;" onclick="switchTab('tab-dns')">🌐 DNS Intelligence & Query Log</button>
+        <button id="tab-btn-payloads" class="filter-btn" style="font-size: 13px; padding: 8px 18px;" onclick="switchTab('tab-payloads')">🔗 Suspicious Links & Payload Audit</button>
     </div>
 
-    <div class="filter-bar">
-        <input type="text" id="search-input" class="search-input" placeholder="🔍 Search IP, Domain, Rule, or ID..." onkeyup="filterAlerts()">
-        <button class="filter-btn active" onclick="setSeverityFilter('ALL', this)">ALL</button>
-        <button class="filter-btn" onclick="setSeverityFilter('CRITICAL', this)">CRITICAL</button>
-        <button class="filter-btn" onclick="setSeverityFilter('HIGH', this)">HIGH</button>
-        <button class="filter-btn" onclick="setSeverityFilter('MEDIUM', this)">MEDIUM</button>
+    <!-- Tab 1 Content: Alerts & Attack Chains -->
+    <div id="tab-alerts" class="tab-content">
+        <div class="section-title">
+            <span>Attack Chain Narrative & Entity Graph</span>
+        </div>
+        <div id="entities-container"></div>
+
+        <div class="section-title" style="margin-top: 32px;">
+            <span>Detailed Forensic Alerts</span>
+        </div>
+
+        <div class="filter-bar">
+            <input type="text" id="search-input" class="search-input" placeholder="🔍 Search IP, Domain, Rule, or ID..." onkeyup="filterAlerts()">
+            <button class="filter-btn active" onclick="setSeverityFilter('ALL', this)">ALL</button>
+            <button class="filter-btn" onclick="setSeverityFilter('CRITICAL', this)">CRITICAL</button>
+            <button class="filter-btn" onclick="setSeverityFilter('HIGH', this)">HIGH</button>
+            <button class="filter-btn" onclick="setSeverityFilter('MEDIUM', this)">MEDIUM</button>
+        </div>
+
+        <div class="alert-table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Alert ID</th>
+                        <th>Severity</th>
+                        <th>Kill-Chain Stage</th>
+                        <th>Source IP:Port</th>
+                        <th>Target IP:Port</th>
+                        <th>Title & Description</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="alerts-tbody"></tbody>
+            </table>
+        </div>
     </div>
 
-    <div class="alert-table-container">
-        <table>
-            <thead>
-                <tr>
-                    <th>Alert ID</th>
-                    <th>Severity</th>
-                    <th>Kill-Chain Stage</th>
-                    <th>Source IP:Port</th>
-                    <th>Target IP:Port</th>
-                    <th>Title & Description</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody id="alerts-tbody"></tbody>
-        </table>
+    <!-- Tab 2 Content: DNS Intelligence -->
+    <div id="tab-dns" class="tab-content" style="display: none;">
+        <div class="section-title">
+            <span>🌐 DNS Query Intelligence & Domain Reputation Breakdown</span>
+        </div>
+        <div class="alert-table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Queried Domain (QNAME)</th>
+                        <th>Record Type</th>
+                        <th>Query Frequency</th>
+                        <th>Shannon Entropy H(S)</th>
+                        <th>Requesting Client IP</th>
+                        <th>Threat Status</th>
+                    </tr>
+                </thead>
+                <tbody id="dns-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Tab 3 Content: Suspicious Links & Payloads -->
+    <div id="tab-payloads" class="tab-content" style="display: none;">
+        <div class="section-title">
+            <span>🔗 Suspicious Links, HTTP URLs & Payload Audit Log</span>
+        </div>
+        <div class="alert-table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Source IP</th>
+                        <th>Target IP:Port</th>
+                        <th>HTTP Method / Auth</th>
+                        <th>Extracted Link / URL / File Signature</th>
+                        <th>User-Agent / Payload Header</th>
+                        <th>Threat Category</th>
+                    </tr>
+                </thead>
+                <tbody id="payloads-tbody"></tbody>
+            </table>
+        </div>
     </div>
 
     <script>
@@ -355,6 +409,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         let activeData = currentData;
         let allAlerts = activeData.alerts || [];
         let currentSeverity = 'ALL';
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+            document.getElementById(tabId).style.display = 'block';
+
+            document.getElementById('tab-btn-alerts').classList.remove('active');
+            document.getElementById('tab-btn-dns').classList.remove('active');
+            document.getElementById('tab-btn-payloads').classList.remove('active');
+
+            if (tabId === 'tab-alerts') document.getElementById('tab-btn-alerts').classList.add('active');
+            if (tabId === 'tab-dns') document.getElementById('tab-btn-dns').classList.add('active');
+            if (tabId === 'tab-payloads') document.getElementById('tab-btn-payloads').classList.add('active');
+        }
 
         function renderDashboard(data) {
             activeData = data;
@@ -388,6 +455,52 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 `;
                 entContainer.appendChild(card);
             });
+
+            // Render DNS Intelligence Table
+            const dnsList = correlation.dns_report || [];
+            const dnsTbody = document.getElementById('dns-tbody');
+            dnsTbody.innerHTML = '';
+            if (dnsList.length === 0) {
+                dnsTbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">No DNS telemetry recorded in this session.</td></tr>';
+            } else {
+                dnsList.forEach(item => {
+                    const tr = document.createElement('tr');
+                    let statusBadge = `<span class="badge badge-INFO">${item.threat_status}</span>`;
+                    if (item.threat_status.includes('DGA') || item.threat_status.includes('TUNNEL')) {
+                        statusBadge = `<span class="badge badge-CRITICAL">${item.threat_status}</span>`;
+                    }
+                    tr.innerHTML = `
+                        <td style="font-family: monospace; font-weight: 700; color: var(--accent-blue);">${item.domain}</td>
+                        <td><span class="badge badge-LOW">${item.qtype}</span></td>
+                        <td>${item.count}</td>
+                        <td style="font-weight: 700;">${item.entropy} bits/char</td>
+                        <td>${item.client_ip || 'N/A'}</td>
+                        <td>${statusBadge}</td>
+                    `;
+                    dnsTbody.appendChild(tr);
+                });
+            }
+
+            // Render Suspicious Links & Payloads Table
+            const payloadList = correlation.suspicious_payloads || [];
+            const payloadTbody = document.getElementById('payloads-tbody');
+            payloadTbody.innerHTML = '';
+            if (payloadList.length === 0) {
+                payloadTbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">No suspicious links or cleartext payload anomalies extracted.</td></tr>';
+            } else {
+                payloadList.forEach(p => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${p.source_ip}</td>
+                        <td>${p.target_ip}:${p.target_port}</td>
+                        <td><span class="badge badge-HIGH">${p.method}</span></td>
+                        <td style="font-family: monospace; color: #a7f3d0; word-break: break-all;">${p.url_or_path}</td>
+                        <td style="font-size: 12px; color: var(--text-muted);">${p.user_agent}</td>
+                        <td><span class="badge badge-CRITICAL">${p.threat_category}</span></td>
+                    `;
+                    payloadTbody.appendChild(tr);
+                });
+            }
 
             filterAlerts();
         }

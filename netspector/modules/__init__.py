@@ -32,3 +32,33 @@ class BaseModule(ABC):
     def finalize(self) -> List[Alert]:
         """Finalizes batch analysis when capture stream ends."""
         return []
+
+
+from netspector.modules.beacon import C2BeaconModule
+from netspector.modules.credentials import CleartextCredentialsModule
+from netspector.modules.lateral import LateralMovementModule
+from netspector.modules.exfil import ExfiltrationModule
+from netspector.modules.entropy import DnsEntropyModule
+from netspector.modules.sweep import SubnetSweepModule
+from netspector.modules.http_audit import HttpAuditModule
+from netspector.modules.ja3_fingerprint import Ja3FingerprintModule
+from netspector.modules.tcpstate import TcpStateModule
+from netspector.modules.file_carver import FileCarverModule
+from netspector.modules.smb_audit import SmbAuditModule
+from netspector.modules.dns_tunnel import DnsTunnelModule
+
+__all__ = [
+    "BaseModule",
+    "C2BeaconModule",
+    "CleartextCredentialsModule",
+    "LateralMovementModule",
+    "ExfiltrationModule",
+    "DnsEntropyModule",
+    "SubnetSweepModule",
+    "HttpAuditModule",
+    "Ja3FingerprintModule",
+    "TcpStateModule",
+    "FileCarverModule",
+    "SmbAuditModule",
+    "DnsTunnelModule",
+]

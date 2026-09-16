@@ -72,6 +72,7 @@ class PacketRef:
         dns_qtype: Optional[int] = None,
         tls_info: Optional[Dict[str, Any]] = None,
         payload_len: int = 0,
+        _raw_payload: Optional[bytes] = None,
     ):
         self.ts_us = ts_us
         self.file_offset = file_offset
@@ -90,6 +91,7 @@ class PacketRef:
         self.dns_qtype = dns_qtype
         self.tls_info = tls_info
         self.payload_len = payload_len
+        self._raw_payload = _raw_payload
 
     def to_dict(self) -> Dict[str, Any]:
         return {

@@ -14,15 +14,20 @@ from netspector.carve import PcapCarver
 from netspector.correlate import AttackChainStitcher
 from netspector.flows import FlowTable
 from netspector.model import Alert, Severity
-from netspector.modules.beacon import C2BeaconModule
-from netspector.modules.credentials import CleartextCredentialsModule
-from netspector.modules.entropy import DnsEntropyModule
-from netspector.modules.exfil import ExfiltrationModule
-from netspector.modules.http_audit import HttpAuditModule
-from netspector.modules.ja3_fingerprint import Ja3FingerprintModule
-from netspector.modules.lateral import LateralMovementModule
-from netspector.modules.sweep import SubnetSweepModule
-from netspector.modules.tcpstate import TcpStateModule
+from netspector.modules import (
+    C2BeaconModule,
+    CleartextCredentialsModule,
+    DnsEntropyModule,
+    DnsTunnelModule,
+    ExfiltrationModule,
+    FileCarverModule,
+    HttpAuditModule,
+    Ja3FingerprintModule,
+    LateralMovementModule,
+    SmbAuditModule,
+    SubnetSweepModule,
+    TcpStateModule,
+)
 from netspector.report import HistoryManager, export_json_report, render_static_html, render_text_report, start_web_dashboard
 from netspector.report.stix_export import export_stix21_bundle
 from netspector.rules.yamlsub import load_yaml_file
@@ -94,6 +99,9 @@ def main():
         HttpAuditModule(),
         Ja3FingerprintModule(),
         TcpStateModule(),
+        FileCarverModule(),
+        SmbAuditModule(),
+        DnsTunnelModule(),
     ]
 
     for m in modules:

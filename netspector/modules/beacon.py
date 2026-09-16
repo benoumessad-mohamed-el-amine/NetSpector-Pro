@@ -51,8 +51,15 @@ class C2BeaconModule(BaseModule):
         if flow.packet_count < self.min_samples:
             return []
 
+        # Filter out zero-payload transport keepalives prior to computing timing metrics
+        data_packets = [p for p in flow.packet_refs if (getattr(p, 'payload_len', 0) or 0) > 0]
+        eval_packets = data_packets if len(data_packets) >= self.min_samples else list(flow.packet_refs)
+
+        if len(eval_packets) < self.min_samples:
+            return []
+
         # Calculate Inter-Arrival Times (IAT) in seconds
-        timestamps = [p.ts_us / 1_000_000.0 for p in flow.packet_refs]
+        timestamps = [p.ts_us / 1_000_000.0 for p in eval_packets]
         timestamps.sort()
 
         iats = [timestamps[i] - timestamps[i - 1] for i in range(1, len(timestamps))]

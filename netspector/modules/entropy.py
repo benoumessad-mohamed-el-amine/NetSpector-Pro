@@ -19,13 +19,21 @@ AD_NOISE_SUBSTRINGS = (
     "in-addr.arpa", "ip6.arpa", "wpad.", "isatap."
 )
 
+TELEMETRY_DOMAINS = (
+    ".microsoft.com", ".msftncsi.com", ".windowsupdate.com", "clients6.google.com",
+    ".googleapis.com", "mshome.net", ".local", ".trafficmanager.net", ".azure.com",
+    ".amazonaws.com", ".cloudfront.net", ".akamaihd.net", ".live.com"
+)
+
 
 def is_ad_enterprise_noise(qname: str) -> bool:
-    """Returns True if DNS QNAME matches Active Directory SRV or enterprise infrastructure patterns."""
+    """Returns True if DNS QNAME matches Active Directory SRV or enterprise infrastructure/telemetry patterns."""
     q_lower = qname.lower()
     if any(q_lower.startswith(prefix) for prefix in AD_NOISE_PREFIXES):
         return True
     if any(sub in q_lower for sub in AD_NOISE_SUBSTRINGS):
+        return True
+    if any(q_lower.endswith(td) or q_lower == td.lstrip(".") for td in TELEMETRY_DOMAINS):
         return True
     return False
 
