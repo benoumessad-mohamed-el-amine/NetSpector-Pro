@@ -1,0 +1,11 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Temporary evidence and test artifacts
+evidence_*.pcap
+forensic_sample.pcap
+generate_test_pcap.py
+test_out.json
+test_out.html

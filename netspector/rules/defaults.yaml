@@ -1,0 +1,36 @@
+# NetSpector Pro Default Forensic Detection Rules Configuration
+
+beacon:
+  enabled: true
+  min_samples: 12
+  max_cov: 0.20
+  max_mad_ratio: 0.25
+  min_duration_sec: 10.0
+
+entropy:
+  enabled: true
+  entropy_threshold: 3.8
+  consonant_cluster_len: 5
+  min_subdomain_len: 8
+
+tcpstate:
+  enabled: true
+  syn_scan_threshold: 10
+  flag_anomalies_enabled: true
+
+lateral:
+  enabled: true
+  fanout_threshold: 15
+  high_risk_ports:
+    - 22
+    - 135
+    - 139
+    - 445
+    - 3389
+    - 5985
+    - 5986
+  internal_subnets:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+    - "127.0.0.0/8"
