@@ -48,6 +48,7 @@ class PacketRef:
         'tcp_flags',
         'dns_qname',
         'dns_qtype',
+        'tls_info',
         'payload_len',
     )
 
@@ -68,6 +69,7 @@ class PacketRef:
         tcp_flags: int = 0,
         dns_qname: Optional[str] = None,
         dns_qtype: Optional[int] = None,
+        tls_info: Optional[Dict[str, Any]] = None,
         payload_len: int = 0,
     ):
         self.ts_us = ts_us
@@ -85,6 +87,7 @@ class PacketRef:
         self.tcp_flags = tcp_flags
         self.dns_qname = dns_qname
         self.dns_qtype = dns_qtype
+        self.tls_info = tls_info
         self.payload_len = payload_len
 
     def to_dict(self) -> Dict[str, Any]:

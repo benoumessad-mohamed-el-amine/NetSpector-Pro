@@ -7,6 +7,7 @@ import time
 from typing import List
 
 from netspector import __version__
+from netspector.capture.live import LiveSocketReader
 from netspector.capture.pcap import PcapReader
 from netspector.capture.pcapng import PcapngReader
 from netspector.carve import PcapCarver
@@ -15,9 +16,12 @@ from netspector.flows import FlowTable
 from netspector.model import Alert, Severity
 from netspector.modules.beacon import C2BeaconModule
 from netspector.modules.entropy import DnsEntropyModule
+from netspector.modules.exfiltration import ExfiltrationModule
+from netspector.modules.ja3_fingerprint import Ja3FingerprintModule
 from netspector.modules.lateral import LateralMovementModule
 from netspector.modules.tcpstate import TcpStateModule
 from netspector.report import export_json_report, render_static_html, render_text_report, start_web_dashboard
+from netspector.report.stix_export import export_stix21_bundle
 from netspector.rules.yamlsub import load_yaml_file
 
 
@@ -38,10 +42,12 @@ def main():
         description="NetSpector Pro - Offline Automated Forensic PCAP & Network Triage Tool",
     )
 
-    parser.add_argument("pcap_file", help="Path to input PCAP or PCAPNG binary capture file")
+    parser.add_argument("pcap_file", nargs="?", help="Path to input PCAP or PCAPNG binary capture file", default=None)
+    parser.add_argument("-i", "--interface", help="Live network interface to sniff (e.g. eth0, wlan0)", default=None)
     parser.add_argument("--rules", help="Path to custom YAML rules file", default=None)
     parser.add_argument("--capacity", help="Flow table max LRU capacity", type=int, default=200000)
     parser.add_argument("--json", help="Export structured JSON triage report to specified path", default=None)
+    parser.add_argument("--stix", help="Export STIX 2.1 Threat Intel JSON Bundle to specified path", default=None)
     parser.add_argument("--html", help="Dump static HTML report to specified path", default=None)
     parser.add_argument("--web", help="Launch interactive local web dashboard", action="store_true")
     parser.add_argument("--port", help="Web server port (default 8080)", type=int, default=8080)
@@ -50,7 +56,11 @@ def main():
 
     args = parser.parse_args()
 
-    if not os.path.isfile(args.pcap_file):
+    if not args.pcap_file and not args.interface:
+        parser.print_help()
+        sys.exit(1)
+
+    if args.pcap_file and not os.path.isfile(args.pcap_file):
         print(f"Error: Input PCAP file '{args.pcap_file}' does not exist.")
         sys.exit(1)
 
@@ -63,7 +73,6 @@ def main():
             print(f"Error: Rules file '{args.rules}' not found.")
             sys.exit(1)
     else:
-        # Load bundled defaults.yaml
         pkg_dir = os.path.dirname(__file__)
         default_yaml_path = os.path.join(pkg_dir, "rules", "defaults.yaml")
         if os.path.isfile(default_yaml_path):
@@ -77,12 +86,13 @@ def main():
         DnsEntropyModule(),
         TcpStateModule(),
         LateralMovementModule(),
+        Ja3FingerprintModule(),
+        ExfiltrationModule(),
     ]
 
     for m in modules:
         m.configure(rules_cfg)
 
-    # Callback when flows are closed or evicted from LRU
     def handle_flow_close(closed_flow):
         for m in modules:
             alerts = m.on_flow_close(closed_flow)
@@ -91,14 +101,19 @@ def main():
 
     flow_table.register_evict_callback(handle_flow_close)
 
-    # 3. Stream Process PCAP Packets
+    # 3. Stream Process Packets (Live or PCAP File)
     print(f"[*] NetSpector Pro v{__version__} starting forensic analysis...")
-    print(f"[*] Input File: '{args.pcap_file}'")
     start_time = time.time()
 
-    reader = create_pcap_reader(args.pcap_file)
     total_packets = 0
     collected_alerts: List[Alert] = []
+
+    if args.interface:
+        print(f"[*] Live Socket Sniffing Mode on Interface: '{args.interface}'")
+        reader = LiveSocketReader(interface=args.interface)
+    else:
+        print(f"[*] File Processing Mode: '{args.pcap_file}'")
+        reader = create_pcap_reader(args.pcap_file)
 
     try:
         with reader as pcap_stream:
@@ -112,7 +127,7 @@ def main():
                         collected_alerts.extend(pkt_alerts)
 
     except Exception as e:
-        print(f"Error during packet parsing: {e}")
+        print(f"Error during packet processing: {e}")
 
     # 4. Finalize Flow Engine & Modules
     flow_table.flush_all()
@@ -124,7 +139,6 @@ def main():
 
     analysis_duration = time.time() - start_time
 
-    # Deduplicate alerts by alert_id
     unique_alerts_map = {}
     for a in collected_alerts:
         unique_alerts_map[a.alert_id] = a
@@ -134,7 +148,6 @@ def main():
     stitcher = AttackChainStitcher(all_alerts)
     correlation_data = stitcher.correlate()
 
-    # Calculate Severity Counts
     sev_counts = {
         "CRITICAL": sum(1 for a in all_alerts if a.severity == Severity.CRITICAL),
         "HIGH": sum(1 for a in all_alerts if a.severity == Severity.HIGH),
@@ -154,18 +167,20 @@ def main():
     text_report = render_text_report(all_alerts, summary_stats, correlation_data)
     print("\n" + text_report)
 
-    # 7. Optional JSON Export
+    # 7. Exports & Output Options
     if args.json:
         export_json_report(all_alerts, summary_stats, correlation_data, args.json)
         print(f"[+] JSON report exported to '{args.json}'")
 
-    # 8. Optional Static HTML Export
+    if args.stix:
+        export_stix21_bundle(all_alerts, args.stix)
+        print(f"[+] STIX 2.1 Threat Intel Bundle exported to '{args.stix}'")
+
     if args.html:
         render_static_html(all_alerts, summary_stats, correlation_data, args.html)
         print(f"[+] Static HTML report written to '{args.html}'")
 
-    # 9. Optional Carve All Alerts
-    if args.carve_all:
+    if args.carve_all and args.pcap_file:
         carver = PcapCarver(args.pcap_file)
         carve_count = 0
         for alert in all_alerts:
@@ -174,9 +189,9 @@ def main():
                 carve_count += 1
         print(f"[+] Carved evidence files for {carve_count} alerts.")
 
-    # 10. Optional Web Dashboard Server
     if args.web:
-        start_web_dashboard(all_alerts, summary_stats, correlation_data, args.pcap_file, port=args.port)
+        source_path = args.pcap_file or args.interface or ""
+        start_web_dashboard(all_alerts, summary_stats, correlation_data, source_path, port=args.port)
 
 
 if __name__ == "__main__":

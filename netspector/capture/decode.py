@@ -2,7 +2,7 @@
 
 import socket
 import struct
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 # Common Link Layer Types (pcap linktypes)
@@ -37,7 +37,6 @@ def format_ipv6(raw_bytes: bytes) -> str:
     try:
         return socket.inet_ntop(socket.AF_INET6, raw_bytes)
     except Exception:
-        # Fallback manual IPv6 format
         hex_str = raw_bytes.hex()
         parts = [hex_str[i:i+4] for i in range(0, 32, 4)]
         return ":".join(parts)
@@ -53,7 +52,6 @@ def parse_dns_name(payload: bytes, offset: int = 0) -> Tuple[Optional[str], int]
     try:
         while curr < len(payload):
             if curr in visited_offsets:
-                # Compression pointer loop protection
                 break
             visited_offsets.add(curr)
 
@@ -63,7 +61,6 @@ def parse_dns_name(payload: bytes, offset: int = 0) -> Tuple[Optional[str], int]
                     original_next_offset = curr + 1
                 break
 
-            # Check if this is a compression pointer (top 2 bits set: 0xC0)
             if (length & 0xC0) == 0xC0:
                 if curr + 1 >= len(payload):
                     break
@@ -73,7 +70,6 @@ def parse_dns_name(payload: bytes, offset: int = 0) -> Tuple[Optional[str], int]
                 curr = pointer
                 continue
 
-            # Standard label
             curr += 1
             if curr + length > len(payload):
                 break
@@ -88,8 +84,8 @@ def parse_dns_name(payload: bytes, offset: int = 0) -> Tuple[Optional[str], int]
 
 
 def decode_dns(payload: bytes) -> Dict[str, Any]:
-    """Decodes DNS query header and QNAME/QTYPE."""
-    dns_info: Dict[str, Any] = {"qname": None, "qtype": None, "qr": 0}
+    """Decodes DNS query header and QNAME/QTYPE/TXT records."""
+    dns_info: Dict[str, Any] = {"qname": None, "qtype": None, "qr": 0, "payload_bytes": len(payload)}
     if len(payload) < 12:
         return dns_info
 
@@ -110,6 +106,106 @@ def decode_dns(payload: bytes) -> Dict[str, Any]:
     return dns_info
 
 
+def decode_tls_client_hello(payload: bytes) -> Optional[Dict[str, Any]]:
+    """Decodes binary TLS Client Hello handshake record to extract JA3/JA4 components."""
+    if len(payload) < 5:
+        return None
+
+    # Check TLS Record Header: Content Type 0x16 (Handshake)
+    content_type, rec_ver_maj, rec_ver_min, rec_len = struct.unpack("!BBBH", payload[:5])
+    if content_type != 0x16 or len(payload) < 5 + rec_len:
+        return None
+
+    hs_data = payload[5:5 + rec_len]
+    if len(hs_data) < 4:
+        return None
+
+    # Check Handshake Type: 0x01 (Client Hello)
+    hs_type = hs_data[0]
+    if hs_type != 0x01:
+        return None
+
+    hs_len = (hs_data[1] << 16) | (hs_data[2] << 8) | hs_data[3]
+    if len(hs_data) < 4 + hs_len:
+        return None
+
+    curr = 4
+    if curr + 34 > len(hs_data):
+        return None
+
+    client_ver = struct.unpack("!H", hs_data[curr:curr + 2])[0]
+    curr += 34  # Version (2B) + Random (32B)
+
+    # Session ID
+    if curr >= len(hs_data):
+        return None
+    sess_id_len = hs_data[curr]
+    curr += 1 + sess_id_len
+
+    # Cipher Suites
+    if curr + 2 > len(hs_data):
+        return None
+    ciphers_len = struct.unpack("!H", hs_data[curr:curr + 2])[0]
+    curr += 2
+    if curr + ciphers_len > len(hs_data):
+        return None
+
+    ciphers = []
+    for i in range(0, ciphers_len, 2):
+        ciphers.append(struct.unpack("!H", hs_data[curr + i:curr + i + 2])[0])
+    curr += ciphers_len
+
+    # Compression Methods
+    if curr >= len(hs_data):
+        return None
+    comp_len = hs_data[curr]
+    curr += 1 + comp_len
+
+    # Extensions
+    extensions = []
+    supported_groups = []
+    ec_point_formats = []
+    sni = None
+
+    if curr + 2 <= len(hs_data):
+        ext_total_len = struct.unpack("!H", hs_data[curr:curr + 2])[0]
+        curr += 2
+        ext_end = min(curr + ext_total_len, len(hs_data))
+
+        while curr + 4 <= ext_end:
+            ext_type, ext_len = struct.unpack("!HH", hs_data[curr:curr + 4])
+            extensions.append(ext_type)
+            ext_data = hs_data[curr + 4:curr + 4 + ext_len]
+            curr += 4 + ext_len
+
+            # Parse SNI (0x0000)
+            if ext_type == 0 and len(ext_data) >= 5:
+                sni_name_len = struct.unpack("!H", ext_data[3:5])[0]
+                if len(ext_data) >= 5 + sni_name_len:
+                    sni = ext_data[5:5 + sni_name_len].decode("ascii", errors="replace")
+
+            # Parse Supported Groups / Elliptic Curves (0x000a)
+            elif ext_type == 10 and len(ext_data) >= 2:
+                groups_len = struct.unpack("!H", ext_data[:2])[0]
+                for g in range(2, min(2 + groups_len, len(ext_data)), 2):
+                    supported_groups.append(struct.unpack("!H", ext_data[g:g + 2])[0])
+
+            # Parse EC Point Formats (0x000b)
+            elif ext_type == 11 and len(ext_data) >= 1:
+                ec_len = ext_data[0]
+                for p in range(1, min(1 + ec_len, len(ext_data))):
+                    ec_point_formats.append(ext_data[p])
+
+    return {
+        "version": client_ver,
+        "ciphers": ciphers,
+        "extensions": extensions,
+        "supported_groups": supported_groups,
+        "ec_point_formats": ec_point_formats,
+        "sni": sni,
+    }
+
+
 def decode_packet(raw_data: bytes, linktype: int = LINKTYPE_ETHERNET) -> Optional[Dict[str, Any]]:
     """Decodes binary packet raw payload starting from link-layer header down to L7."""
     if not raw_data:
@@ -127,21 +223,17 @@ def decode_packet(raw_data: bytes, linktype: int = LINKTYPE_ETHERNET) -> Optiona
         ethertype = struct.unpack("!H", raw_data[12:14])[0]
         offset = 14
 
-        # Handle 802.1Q VLAN Tags
         while ethertype in (ETHERTYPE_VLAN, ETHERTYPE_VLAN_QINQ) and offset + 4 <= len(raw_data):
-            # 2 bytes VLAN TCI, 2 bytes inner EtherType
             ethertype = struct.unpack("!H", raw_data[offset + 2:offset + 4])[0]
             offset += 4
 
     elif linktype == LINKTYPE_LINUX_SLL:
         if len(raw_data) < 16:
             return None
-        packet_type, arphrd_type, addr_len = struct.unpack("!HHH", raw_data[0:6])
         ethertype = struct.unpack("!H", raw_data[14:16])[0]
         offset = 16
 
     elif linktype in (LINKTYPE_RAW, LINKTYPE_NULL):
-        # Determine IP version directly from first nibble
         if len(raw_data) < 1:
             return None
         ip_ver = (raw_data[0] >> 4) & 0x0F
@@ -149,7 +241,6 @@ def decode_packet(raw_data: bytes, linktype: int = LINKTYPE_ETHERNET) -> Optiona
         offset = 0 if linktype == LINKTYPE_RAW else 4
 
     else:
-        # Unsupported linktype fallback: attempt IPv4/IPv6 heuristic check
         ip_ver = (raw_data[0] >> 4) & 0x0F
         if ip_ver == 4:
             ethertype = ETHERTYPE_IPV4
@@ -160,7 +251,6 @@ def decode_packet(raw_data: bytes, linktype: int = LINKTYPE_ETHERNET) -> Optiona
         else:
             return None
 
-    # Parse Layer 3
     src_ip, dst_ip = "", ""
     protocol = 0
     l4_data = b""
@@ -212,16 +302,16 @@ def decode_packet(raw_data: bytes, linktype: int = LINKTYPE_ETHERNET) -> Optiona
             "dst_ip": format_ipv4(t_ip),
             "src_port": 0,
             "dst_port": 0,
-            "protocol": 2054,  # EtherType ARP
+            "protocol": 2054,
             "payload_len": len(l4_data),
         }
     else:
         return None
 
-    # Parse Layer 4
     src_port, dst_port = 0, 0
     tcp_seq, tcp_ack, tcp_flags = 0, 0, 0
     dns_info = {}
+    tls_info = None
     payload = b""
 
     if protocol == IPPROTO_TCP:
@@ -232,8 +322,12 @@ def decode_packet(raw_data: bytes, linktype: int = LINKTYPE_ETHERNET) -> Optiona
             "!HHIIHHHH", tcph
         )
         tcp_header_len = ((offset_reserved_flags >> 12) & 0x0F) * 4
-        tcp_flags = offset_reserved_flags & 0x01FF  # Extract flags (FIN, SYN, RST, PSH, ACK, URG, ECE, CWR, NS)
+        tcp_flags = offset_reserved_flags & 0x01FF
         payload = l4_data[tcp_header_len:]
+
+        # Attempt decoding TLS Client Hello
+        if payload and (dst_port == 443 or src_port == 443 or payload[0] == 0x16):
+            tls_info = decode_tls_client_hello(payload)
 
     elif protocol == IPPROTO_UDP:
         if len(l4_data) < 8:
@@ -241,7 +335,6 @@ def decode_packet(raw_data: bytes, linktype: int = LINKTYPE_ETHERNET) -> Optiona
         src_port, dst_port, udp_len, check = struct.unpack("!HHHH", l4_data[:8])
         payload = l4_data[8:]
 
-        # Decode DNS if port is 53
         if src_port == 53 or dst_port == 53:
             dns_info = decode_dns(payload)
 
@@ -263,5 +356,6 @@ def decode_packet(raw_data: bytes, linktype: int = LINKTYPE_ETHERNET) -> Optiona
         "tcp_flags": tcp_flags,
         "dns_qname": dns_info.get("qname"),
         "dns_qtype": dns_info.get("qtype"),
+        "tls_info": tls_info,
         "payload_len": len(payload),
     }

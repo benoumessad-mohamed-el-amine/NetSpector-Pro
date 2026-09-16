@@ -115,6 +115,7 @@ class PcapReader:
                 tcp_flags=decoded.get("tcp_flags", 0),
                 dns_qname=decoded.get("dns_qname"),
                 dns_qtype=decoded.get("dns_qtype"),
+                tls_info=decoded.get("tls_info"),
                 payload_len=decoded.get("payload_len", 0),
             )
 

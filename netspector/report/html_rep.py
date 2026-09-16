@@ -49,7 +49,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         }
 
         h1 { font-size: 24px; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 10px; }
-        .logo-badge { background: linear-gradient(135deg, #38bdf8, #818cf8); color: #000; padding: 4px 10px; borderRadius: 6px; font-size: 12px; font-weight: 800; }
+        .logo-badge { background: linear-gradient(135deg, #38bdf8, #818cf8); color: #000; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 800; }
 
         .stats-grid {
             display: grid;
@@ -70,6 +70,40 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         .stat-value { font-size: 28px; font-weight: 800; margin-top: 6px; color: var(--accent-blue); }
 
         .section-title { font-size: 18px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; }
+
+        .filter-bar {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        .search-input {
+            background: #0f172a;
+            border: 1px solid var(--card-border);
+            color: var(--text-main);
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            width: 280px;
+        }
+
+        .filter-btn {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            color: var(--text-muted);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .filter-btn.active {
+            background: var(--accent-blue);
+            color: #000;
+            border-color: var(--accent-blue);
+        }
 
         .badge {
             display: inline-block;
@@ -118,7 +152,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             border: 1px solid var(--card-border);
             border-radius: 12px;
             overflow: hidden;
-            margin-top: 24px;
+            margin-top: 12px;
         }
 
         table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13px; }
@@ -155,7 +189,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
 
     <header>
-        <h1><span class="logo-badge">NETSPECTOR PRO</span> Forensic Triage Dashboard</h1>
+        <h1><span class="logo-badge">NETSPECTOR PRO</span> Forensic Triage Dashboard v1.1.0</h1>
         <div style="font-size: 12px; color: var(--text-muted);">Offline Analysis Engine | Zero Dependencies</div>
     </header>
 
@@ -187,6 +221,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <span>Detailed Forensic Alerts</span>
     </div>
 
+    <div class="filter-bar">
+        <input type="text" id="search-input" class="search-input" placeholder="🔍 Search IP, Domain, Rule, or ID..." onkeyup="filterAlerts()">
+        <button class="filter-btn active" onclick="setSeverityFilter('ALL', this)">ALL</button>
+        <button class="filter-btn" onclick="setSeverityFilter('CRITICAL', this)">CRITICAL</button>
+        <button class="filter-btn" onclick="setSeverityFilter('HIGH', this)">HIGH</button>
+        <button class="filter-btn" onclick="setSeverityFilter('MEDIUM', this)">MEDIUM</button>
+    </div>
+
     <div class="alert-table-container">
         <table>
             <thead>
@@ -206,18 +248,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     <script>
         const initialData = __DATA_JSON__;
+        let allAlerts = initialData.alerts || [];
+        let currentSeverity = 'ALL';
 
         function renderDashboard(data) {
             const summary = data.metadata ? data.metadata.summary : {};
             document.getElementById('stat-packets').innerText = (summary.total_packets || 0).toLocaleString();
             document.getElementById('stat-flows').innerText = (summary.total_flows || 0).toLocaleString();
-            document.getElementById('stat-alerts').innerText = (data.alerts || []).length;
+            document.getElementById('stat-alerts').innerText = allAlerts.length;
 
             const correlation = data.attack_chain_correlation || {};
             const entities = correlation.entities || [];
             document.getElementById('stat-entities').innerText = entities.length;
 
-            // Render Entity Cards
             const entContainer = document.getElementById('entities-container');
             entContainer.innerHTML = '';
             entities.forEach(ent => {
@@ -238,10 +281,33 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 entContainer.appendChild(card);
             });
 
-            // Render Alert Rows
+            filterAlerts();
+        }
+
+        function setSeverityFilter(sev, btn) {
+            currentSeverity = sev;
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            filterAlerts();
+        }
+
+        function filterAlerts() {
+            const query = document.getElementById('search-input').value.toLowerCase();
             const tbody = document.getElementById('alerts-tbody');
             tbody.innerHTML = '';
-            (data.alerts || []).forEach(alt => {
+
+            const filtered = allAlerts.filter(alt => {
+                const matchSev = currentSeverity === 'ALL' || alt.severity === currentSeverity;
+                const matchQuery = !query || 
+                    alt.alert_id.toLowerCase().includes(query) ||
+                    alt.title.toLowerCase().includes(query) ||
+                    alt.description.toLowerCase().includes(query) ||
+                    alt.source_ip.includes(query) ||
+                    alt.target_ip.includes(query);
+                return matchSev && matchQuery;
+            });
+
+            filtered.forEach(alt => {
                 const tr = document.createElement('tr');
                 const proofStr = JSON.stringify(alt.arithmetic_proof, null, 2);
                 tr.innerHTML = `
@@ -343,7 +409,6 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(obj).encode("utf-8"))
 
     def log_message(self, format, *args):
-        # Suppress noisy HTTP request logging
         return
 
 
