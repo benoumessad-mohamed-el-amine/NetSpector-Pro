@@ -68,12 +68,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         h1 { font-size: 24px; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 10px; }
         .logo-badge { background: linear-gradient(135deg, #38bdf8, #818cf8); color: #000; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 800; }
 
-        /* Drag and Drop Zone */
+        /* Drag and Drop Zone & Progress Bar */
         .dropzone {
             background: rgba(30, 41, 59, 0.6);
             border: 2px dashed var(--accent-blue);
             border-radius: 12px;
-            padding: 32px;
+            padding: 28px;
             text-align: center;
             margin-bottom: 28px;
             cursor: pointer;
@@ -86,6 +86,27 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         .dropzone-icon { font-size: 36px; margin-bottom: 8px; }
         .dropzone-title { font-size: 16px; font-weight: 700; color: var(--text-main); }
         .dropzone-desc { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
+        .progress-container {
+            width: 100%;
+            max-width: 500px;
+            margin: 16px auto 0 auto;
+            display: none;
+        }
+        .progress-bar-bg {
+            background: #0f172a;
+            border-radius: 8px;
+            height: 12px;
+            overflow: hidden;
+            border: 1px solid var(--card-border);
+        }
+        .progress-bar-fill {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, #38bdf8, #818cf8);
+            border-radius: 8px;
+            transition: width 0.2s ease-in-out;
+        }
 
         .stats-grid {
             display: grid;
@@ -229,11 +250,22 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <div style="font-size: 12px; color: var(--text-muted);">Offline Analysis Engine | Zero Dependencies</div>
     </header>
 
-    <!-- Interactive Drag & Drop PCAP Zone -->
+    <!-- Interactive Drag & Drop PCAP Zone with Progress Bar -->
     <div class="dropzone" id="dropzone" onclick="document.getElementById('file-input').click()">
         <div class="dropzone-icon">📁</div>
         <div class="dropzone-title">Drag & Drop PCAP / PCAPNG File Here</div>
         <div class="dropzone-desc">or click to browse from your computer to analyze immediately</div>
+        
+        <div class="progress-container" id="progress-container">
+            <div class="progress-bar-bg">
+                <div class="progress-bar-fill" id="progress-bar-fill"></div>
+            </div>
+            <div style="font-size: 12px; color: var(--text-muted); margin-top: 6px; display: flex; justify-content: space-between;">
+                <span id="progress-status">Uploading & Analyzing...</span>
+                <span id="progress-percentage">0%</span>
+            </div>
+        </div>
+
         <input type="file" id="file-input" style="display: none;" accept=".pcap,.pcapng,.cap" onchange="handleFileSelect(event)">
     </div>
 
@@ -421,24 +453,59 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
         }
 
-        async function uploadPcap(file) {
-            const title = document.querySelector('.dropzone-title');
-            title.innerText = `⏳ Analyzing '${file.name}'...`;
+        function updateProgress(percent, statusText) {
+            const container = document.getElementById('progress-container');
+            const fill = document.getElementById('progress-bar-fill');
+            const pctText = document.getElementById('progress-percentage');
+            const status = document.getElementById('progress-status');
 
-            try {
-                const arrayBuffer = await file.arrayBuffer();
-                const response = await fetch('/api/upload', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/octet-stream' },
-                    body: arrayBuffer,
-                });
-                const result = await response.json();
-                title.innerText = `✅ Analyzed '${file.name}'`;
-                renderDashboard(result);
-            } catch (err) {
+            container.style.display = 'block';
+            fill.style.width = Math.min(100, Math.max(0, percent)) + '%';
+            pctText.innerText = Math.round(percent) + '%';
+            if (statusText) status.innerText = statusText;
+        }
+
+        function uploadPcap(file) {
+            const title = document.querySelector('.dropzone-title');
+            title.innerText = `⏳ Triage in progress: '${file.name}'...`;
+            updateProgress(10, "Uploading capture binary...");
+
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/api/upload', true);
+            xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+
+            xhr.upload.onprogress = function(e) {
+                if (e.lengthComputable) {
+                    const uploadPct = (e.loaded / e.total) * 50; // Upload takes first 50%
+                    updateProgress(uploadPct, `Uploading (${Math.round(uploadPct * 2)}%)...`);
+                }
+            };
+
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    updateProgress(85, "Executing 10 Forensic Triage Engines...");
+                    setTimeout(() => {
+                        updateProgress(100, "Analysis Complete!");
+                        title.innerText = `✅ Triage Complete: '${file.name}'`;
+                        const result = JSON.parse(xhr.responseText);
+                        renderDashboard(result);
+                        setTimeout(() => {
+                            document.getElementById('progress-container').style.display = 'none';
+                        }, 2500);
+                    }, 400);
+                } else {
+                    title.innerText = `❌ Error analyzing '${file.name}'`;
+                    updateProgress(0, "Triage Error");
+                    alert('Failed to analyze PCAP file.');
+                }
+            };
+
+            xhr.onerror = function() {
                 title.innerText = `❌ Error analyzing '${file.name}'`;
-                alert('Failed to analyze PCAP: ' + err);
-            }
+                updateProgress(0, "Connection Error");
+            };
+
+            xhr.send(file);
         }
 
         renderDashboard(currentData);
@@ -593,7 +660,6 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"error": "No PCAP data received"}, code=400)
                 return
 
-            # Save uploaded binary file to temp PCAP
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pcap") as tmp_f:
                 tmp_f.write(raw_data)
                 tmp_pcap_path = tmp_f.name
@@ -635,7 +701,7 @@ def start_web_dashboard(
 
     server = HTTPServer(("127.0.0.1", port), DashboardRequestHandler)
     print(f"\n[+] Interactive Web Dashboard running at http://127.0.0.1:{port}")
-    print("[+] Drag & Drop PCAP upload active on dashboard!")
+    print("[+] Drag & Drop PCAP upload active with live analysis progress bar!")
     print("[+] Press Ctrl+C to stop web server.\n")
 
     try:
