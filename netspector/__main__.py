@@ -23,7 +23,7 @@ from netspector.modules.ja3_fingerprint import Ja3FingerprintModule
 from netspector.modules.lateral import LateralMovementModule
 from netspector.modules.sweep import SubnetSweepModule
 from netspector.modules.tcpstate import TcpStateModule
-from netspector.report import export_json_report, render_static_html, render_text_report, start_web_dashboard
+from netspector.report import HistoryManager, export_json_report, render_static_html, render_text_report, start_web_dashboard
 from netspector.report.stix_export import export_stix21_bundle
 from netspector.rules.yamlsub import load_yaml_file
 
@@ -184,6 +184,22 @@ def main():
     # 6. Render Terminal Report
     text_report = render_text_report(all_alerts, summary_stats, correlation_data)
     print("\n" + text_report)
+
+    # 6b. Save History Profile
+    if args.pcap_file or args.interface:
+        triage_dict = {
+            "metadata": {
+                "tool": "NetSpector Pro",
+                "version": __version__,
+                "summary": summary_stats,
+            },
+            "attack_chain_correlation": correlation_data,
+            "alerts": [a.to_dict() for a in all_alerts],
+        }
+        hist = HistoryManager()
+        source_name = args.pcap_file or args.interface
+        meta = hist.save_profile(source_name, triage_dict)
+        print(f"[+] Triage session profile archived: '{meta['profile_id']}'")
 
     # 7. Exports & Output Options
     if args.json:

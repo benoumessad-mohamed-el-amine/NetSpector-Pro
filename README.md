@@ -16,6 +16,8 @@ NetSpector Pro is a high-precision forensic co-pilot built for Incident Response
 - ⚡ **High-Speed Stream Triage:** Bounded LRU flow engine (200,000 capacity) using lightweight packet indexing (`PacketRef`) to parse gigabyte-scale packet captures with minimal memory overhead.
 - 🔍 **Low False-Positive Threat Hunting:** Minimum sample gates, stateful TCP tracking, and threat signatures prioritize actionable, high-confidence forensic findings over noisy alerts.
 - 🛠️ **Cyber Kill Chain Campaign Correlation:** Automatically stitches isolated network events into an integrated campaign timeline per host entity, scoring campaign plausibility.
+- 📁 **Scan History & Session Profiles:** Automatically archives forensic triage sessions into `./netspector_history/` as persistent JSON profiles. Switch between past triage sessions dynamically in the Web UI dashboard or REST API.
+- 📤 **Drag & Drop UI Analysis:** Integrated browser dropzone with live analysis progress bar for immediate offline PCAP triage without leaving the Web Dashboard.
 - ✂️ **One-Click Wireshark Evidence Carving:** Instant seek-and-copy binary packet carving that extracts suspicious network flows into standalone PCAP evidence files with embedded Wireshark details panel notes.
 - 📊 **STIX 2.1 Threat Intel Export:** Generates standardized STIX 2.1 JSON Bundles for seamless SIEM, SOAR, and MISP platform ingestion.
 
@@ -73,8 +75,9 @@ NetSpector-Pro/
 │       ├── text.py              # CLI terminal text summary renderer
 │       ├── json_rep.py          # Structured JSON triage report exporter
 │       ├── stix_export.py       # STIX 2.1 Threat Intel JSON Bundle exporter
+│       ├── history.py           # Scan History & Session Profiles Manager
 │       └── html_rep.py          # Local http.server REST server & responsive Web UI dashboard
-└── tests/                       # Complete unit test suite (21/21 passing)
+└── tests/                       # Complete unit test suite (23/23 passing)
 ```
 
 ---

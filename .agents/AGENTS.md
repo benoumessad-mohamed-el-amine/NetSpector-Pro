@@ -31,11 +31,12 @@
 6. **Timeline Stitcher & PCAPNG Carver with Comment Injection:**
    - `netspector/correlate.py`: Entity graph & Cyber Kill Chain timeline stitcher with plausibility scoring.
    - `netspector/carve.py`: Fast binary seek-and-copy PCAP packet carver with option comment injection (`opt_comment`) for Wireshark details panel.
-7. **Reporting, STIX 2.1 & Interactive Web Dashboard:**
+7. **Reporting, STIX 2.1, Scan History & Interactive Web Dashboard:**
    - `netspector/report/text.py`: CLI terminal summary.
    - `netspector/report/json_rep.py`: Structured JSON report exporter.
    - `netspector/report/stix_export.py`: STIX 2.1 Threat Intel JSON Bundle exporter.
-   - `netspector/report/html_rep.py`: Local `http.server` REST server & responsive HTML/JS UI dashboard with live search & severity filtering.
+   - `netspector/report/history.py`: Local `HistoryManager` scan profile archiver (`./netspector_history/`).
+   - `netspector/report/html_rep.py`: Local `http.server` REST server (`/api/history`, `/api/upload`, `/api/carve`), responsive HTML/JS UI dashboard with live search, severity filtering, drag-and-drop file upload progress bar, and session profile selector.
 8. **Build & Distribution:**
    - `build.py`: Packages `netspector/` into `./netspector.pyz` standalone executable via `zipapp`.
 

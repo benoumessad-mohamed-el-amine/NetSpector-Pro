@@ -6,7 +6,7 @@ import os
 import tempfile
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from netspector.capture.pcap import PcapReader
 from netspector.capture.pcapng import PcapngReader
@@ -23,6 +23,7 @@ from netspector.modules.ja3_fingerprint import Ja3FingerprintModule
 from netspector.modules.lateral import LateralMovementModule
 from netspector.modules.sweep import SubnetSweepModule
 from netspector.modules.tcpstate import TcpStateModule
+from netspector.report.history import HistoryManager
 
 
 HTML_TEMPLATE = """<!DOCTYPE html>
@@ -63,17 +64,37 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             padding-bottom: 20px;
             border-bottom: 1px solid var(--card-border);
             margin-bottom: 24px;
+            flex-wrap: wrap;
+            gap: 16px;
         }
 
         h1 { font-size: 24px; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 10px; }
         .logo-badge { background: linear-gradient(135deg, #38bdf8, #818cf8); color: #000; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 800; }
+
+        /* History & Profile Selector Controls */
+        .history-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .history-select {
+            background: #0f172a;
+            border: 1px solid var(--card-border);
+            color: var(--accent-blue);
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            max-width: 320px;
+            cursor: pointer;
+        }
 
         /* Drag and Drop Zone & Progress Bar */
         .dropzone {
             background: rgba(30, 41, 59, 0.6);
             border: 2px dashed var(--accent-blue);
             border-radius: 12px;
-            padding: 28px;
+            padding: 24px;
             text-align: center;
             margin-bottom: 28px;
             cursor: pointer;
@@ -83,20 +104,20 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             background: rgba(56, 189, 248, 0.15);
             border-color: #818cf8;
         }
-        .dropzone-icon { font-size: 36px; margin-bottom: 8px; }
-        .dropzone-title { font-size: 16px; font-weight: 700; color: var(--text-main); }
-        .dropzone-desc { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+        .dropzone-icon { font-size: 32px; margin-bottom: 6px; }
+        .dropzone-title { font-size: 15px; font-weight: 700; color: var(--text-main); }
+        .dropzone-desc { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
 
         .progress-container {
             width: 100%;
-            max-width: 500px;
-            margin: 16px auto 0 auto;
+            max-width: 480px;
+            margin: 12px auto 0 auto;
             display: none;
         }
         .progress-bar-bg {
             background: #0f172a;
             border-radius: 8px;
-            height: 12px;
+            height: 10px;
             overflow: hidden;
             border: 1px solid var(--card-border);
         }
@@ -247,10 +268,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     <header>
         <h1><span class="logo-badge">NETSPECTOR PRO</span> Forensic Triage Dashboard</h1>
-        <div style="font-size: 12px; color: var(--text-muted);">Offline Analysis Engine | Zero Dependencies</div>
+        
+        <!-- Scan History Profile Selector -->
+        <div class="history-controls">
+            <span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">📜 Scan Profiles:</span>
+            <select id="history-select" class="history-select" onchange="onProfileSelect(this.value)">
+                <option value="CURRENT">-- Current Active Session --</option>
+            </select>
+        </div>
     </header>
 
-    <!-- Interactive Drag & Drop PCAP Zone with Progress Bar -->
+    <!-- Interactive Drag & Drop PCAP Zone -->
     <div class="dropzone" id="dropzone" onclick="document.getElementById('file-input').click()">
         <div class="dropzone-icon">📁</div>
         <div class="dropzone-title">Drag & Drop PCAP / PCAPNG File Here</div>
@@ -260,7 +288,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <div class="progress-bar-bg">
                 <div class="progress-bar-fill" id="progress-bar-fill"></div>
             </div>
-            <div style="font-size: 12px; color: var(--text-muted); margin-top: 6px; display: flex; justify-content: space-between;">
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px; display: flex; justify-content: space-between;">
                 <span id="progress-status">Uploading & Analyzing...</span>
                 <span id="progress-percentage">0%</span>
             </div>
@@ -324,11 +352,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     <script>
         let currentData = __DATA_JSON__;
-        let allAlerts = currentData.alerts || [];
+        let activeData = currentData;
+        let allAlerts = activeData.alerts || [];
         let currentSeverity = 'ALL';
 
         function renderDashboard(data) {
-            currentData = data;
+            activeData = data;
             allAlerts = data.alerts || [];
 
             const summary = data.metadata ? data.metadata.summary : {};
@@ -411,6 +440,39 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             });
         }
 
+        async function fetchHistory() {
+            try {
+                const res = await fetch('/api/history');
+                const profiles = await res.json();
+                const sel = document.getElementById('history-select');
+                sel.innerHTML = '<option value="CURRENT">-- Current Active Session --</option>';
+
+                profiles.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.profile_id;
+                    opt.innerText = `[${p.profile_id}] ${p.filename} (${p.total_alerts} Alerts) - ${p.created_at}`;
+                    sel.appendChild(opt);
+                });
+            } catch (err) {
+                console.error("Failed loading scan history", err);
+            }
+        }
+
+        async function onProfileSelect(profId) {
+            if (profId === 'CURRENT') {
+                renderDashboard(currentData);
+                return;
+            }
+
+            try {
+                const res = await fetch(`/api/history?profile_id=${profId}`);
+                const data = await res.json();
+                renderDashboard(data);
+            } catch (err) {
+                alert('Error loading profile: ' + profId);
+            }
+        }
+
         async function carveAlert(alertId) {
             try {
                 const res = await fetch(`/api/carve?alert_id=${alertId}`);
@@ -476,7 +538,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
             xhr.upload.onprogress = function(e) {
                 if (e.lengthComputable) {
-                    const uploadPct = (e.loaded / e.total) * 50; // Upload takes first 50%
+                    const uploadPct = (e.loaded / e.total) * 50;
                     updateProgress(uploadPct, `Uploading (${Math.round(uploadPct * 2)}%)...`);
                 }
             };
@@ -489,6 +551,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         title.innerText = `✅ Triage Complete: '${file.name}'`;
                         const result = JSON.parse(xhr.responseText);
                         renderDashboard(result);
+                        fetchHistory();
                         setTimeout(() => {
                             document.getElementById('progress-container').style.display = 'none';
                         }, 2500);
@@ -509,6 +572,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         }
 
         renderDashboard(currentData);
+        fetchHistory();
     </script>
 </body>
 </html>
@@ -541,7 +605,6 @@ def run_triage_on_pcap_file(filepath: str) -> Dict[str, Any]:
 
     flow_table.register_evict_callback(handle_flow_close)
 
-    # Detect pcap format
     with open(filepath, "rb") as f:
         magic = f.read(4)
 
@@ -588,15 +651,21 @@ def run_triage_on_pcap_file(filepath: str) -> Dict[str, Any]:
         "severity_counts": sev_counts,
     }
 
-    return {
+    result = {
         "metadata": {"summary": summary_stats},
         "attack_chain_correlation": correlation_data,
         "alerts": [a.to_dict() for a in all_alerts],
     }
 
+    # Automatically save profile into scan history
+    hist = HistoryManager()
+    hist.save_profile(filepath, result)
+
+    return result
+
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
-    """HTTP Request Handler for NetSpector Pro local web dashboard with Drag & Drop PCAP upload."""
+    """HTTP Request Handler for NetSpector Pro local web dashboard with Drag & Drop PCAP upload and History API."""
 
     alerts: List[Alert] = []
     summary_stats: Dict[str, Any] = {}
@@ -620,6 +689,20 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
             self.wfile.write(rendered_html.encode("utf-8"))
+
+        elif path == "/api/history":
+            hist = HistoryManager()
+            profile_id = query.get("profile_id", [""])[0]
+
+            if profile_id:
+                prof_data = hist.get_profile(profile_id)
+                if prof_data:
+                    self._send_json(prof_data)
+                else:
+                    self._send_json({"error": f"Profile '{profile_id}' not found"}, code=404)
+            else:
+                profiles_list = hist.list_profiles()
+                self._send_json(profiles_list)
 
         elif path == "/api/summary":
             self._send_json({"summary": self.summary_stats})
@@ -670,9 +753,30 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 DashboardRequestHandler.correlation_data = result_dict["attack_chain_correlation"]
                 DashboardRequestHandler.source_pcap_path = tmp_pcap_path
 
+                HistoryManager().save_profile("Uploaded PCAP", result_dict)
+
                 self._send_json(result_dict)
             except Exception as e:
                 self._send_json({"error": f"Failed to triage uploaded PCAP: {e}"}, code=500)
+        else:
+            self.send_error(404, "Not Found")
+
+    def do_DELETE(self):
+        parsed_url = urllib.parse.urlparse(self.path)
+        path = parsed_url.path
+        query = urllib.parse.parse_qs(parsed_url.query)
+
+        if path == "/api/history":
+            profile_id = query.get("profile_id", [""])[0]
+            if profile_id:
+                hist = HistoryManager()
+                success = hist.delete_profile(profile_id)
+                if success:
+                    self._send_json({"status": "success", "message": f"Profile '{profile_id}' deleted"})
+                else:
+                    self._send_json({"error": f"Failed to delete profile '{profile_id}'"}, code=500)
+            else:
+                self._send_json({"error": "profile_id required"}, code=400)
         else:
             self.send_error(404, "Not Found")
 
@@ -701,7 +805,7 @@ def start_web_dashboard(
 
     server = HTTPServer(("127.0.0.1", port), DashboardRequestHandler)
     print(f"\n[+] Interactive Web Dashboard running at http://127.0.0.1:{port}")
-    print("[+] Drag & Drop PCAP upload active with live analysis progress bar!")
+    print("[+] Scan History Profiles active on dashboard!")
     print("[+] Press Ctrl+C to stop web server.\n")
 
     try:
