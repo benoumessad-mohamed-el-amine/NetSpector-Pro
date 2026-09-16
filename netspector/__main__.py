@@ -59,7 +59,7 @@ def main():
 
     args = parser.parse_args()
 
-    if not args.pcap_file and not args.interface:
+    if not args.pcap_file and not args.interface and not args.web:
         parser.print_help()
         sys.exit(1)
 
@@ -107,7 +107,7 @@ def main():
 
     flow_table.register_evict_callback(handle_flow_close)
 
-    # 3. Stream Process Packets (Live or PCAP File)
+    # 3. Stream Process Packets (Live, PCAP File, or Standalone Web UI)
     print(f"[*] NetSpector Pro v{__version__} starting forensic analysis...")
     start_time = time.time()
 
@@ -117,23 +117,35 @@ def main():
     if args.interface:
         print(f"[*] Live Socket Sniffing Mode on Interface: '{args.interface}'")
         reader = LiveSocketReader(interface=args.interface)
-    else:
+        try:
+            with reader as pcap_stream:
+                for pkt in pcap_stream.packets():
+                    total_packets += 1
+                    flow = flow_table.touch_or_create(pkt)
+                    for m in modules:
+                        pkt_alerts = m.on_packet(pkt, flow)
+                        if pkt_alerts:
+                            collected_alerts.extend(pkt_alerts)
+        except Exception as e:
+            print(f"Error during packet processing: {e}")
+
+    elif args.pcap_file:
         print(f"[*] File Processing Mode: '{args.pcap_file}'")
         reader = create_pcap_reader(args.pcap_file)
+        try:
+            with reader as pcap_stream:
+                for pkt in pcap_stream.packets():
+                    total_packets += 1
+                    flow = flow_table.touch_or_create(pkt)
+                    for m in modules:
+                        pkt_alerts = m.on_packet(pkt, flow)
+                        if pkt_alerts:
+                            collected_alerts.extend(pkt_alerts)
+        except Exception as e:
+            print(f"Error during packet processing: {e}")
 
-    try:
-        with reader as pcap_stream:
-            for pkt in pcap_stream.packets():
-                total_packets += 1
-                flow = flow_table.touch_or_create(pkt)
-
-                for m in modules:
-                    pkt_alerts = m.on_packet(pkt, flow)
-                    if pkt_alerts:
-                        collected_alerts.extend(pkt_alerts)
-
-    except Exception as e:
-        print(f"Error during packet processing: {e}")
+    elif args.web:
+        print("[*] Standalone Web Dashboard Mode Ready.")
 
     # 4. Finalize Flow Engine & Modules
     flow_table.flush_all()
