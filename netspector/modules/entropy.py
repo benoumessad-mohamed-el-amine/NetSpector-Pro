@@ -1,9 +1,33 @@
-"""Module 2: Shannon Entropy & DGA Domain Detection."""
+"""Module 6: Shannon Entropy & DGA Domain Detection with Active Directory Noise Filtering."""
 
 import math
 from typing import Any, Dict, List, Tuple
 from netspector.model import Alert, Flow, KillChainStage, PacketRef, Severity
 from netspector.modules import BaseModule
+
+
+# Active Directory & Enterprise Infrastructure Noise Whitelist Patterns
+# Suppresses false positives on standard Windows SRV records (_ldap._tcp, _kerberos._tcp, _msdcs, etc.)
+AD_NOISE_PREFIXES = (
+    "_ldap.", "_kerberos.", "_kpasswd.", "_gc.", "_msdcs.",
+    "_sites.", "_tcp.", "_udp.", "_vlmcs.", "_autodiscover.",
+    "_domainkey.", "_sip.", "_turn.", "_stun."
+)
+
+AD_NOISE_SUBSTRINGS = (
+    "._msdcs.", "._sites.", "._tcp.", "._udp.",
+    "in-addr.arpa", "ip6.arpa", "wpad.", "isatap."
+)
+
+
+def is_ad_enterprise_noise(qname: str) -> bool:
+    """Returns True if DNS QNAME matches Active Directory SRV or enterprise infrastructure patterns."""
+    q_lower = qname.lower()
+    if any(q_lower.startswith(prefix) for prefix in AD_NOISE_PREFIXES):
+        return True
+    if any(sub in q_lower for sub in AD_NOISE_SUBSTRINGS):
+        return True
+    return False
 
 
 def calculate_shannon_entropy(text: str) -> Tuple[float, Dict[str, float]]:
@@ -76,6 +100,10 @@ class DnsEntropyModule(BaseModule):
         if qname in self.seen_domains:
             return []
 
+        # Mandatory Whitelist Filtering: Filter Active Directory & Enterprise Infrastructure Noise FIRST
+        if is_ad_enterprise_noise(qname):
+            return []
+
         subdomain, parent_domain = extract_subdomain_parts(qname)
         if len(subdomain) < self.min_subdomain_len:
             return []
@@ -118,6 +146,7 @@ class DnsEntropyModule(BaseModule):
                     "consonant_cluster_threshold": self.consonant_cluster_len,
                     "char_probabilities": probs,
                     "formula": "H(S) = -sum(P(c) * log2(P(c)))",
+                    "ad_noise_filter_passed": True,
                 },
             )
             return [alert]

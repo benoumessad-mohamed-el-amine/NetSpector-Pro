@@ -30,7 +30,7 @@ NetSpector Pro is a high-precision forensic co-pilot built for Incident Response
 | **3. Cleartext Credential Sniffer** | `credentials.py` | Extracts exposed authentication strings over unencrypted protocols (HTTP Basic Auth, FTP, Telnet, POP3, SMTP). |
 | **4. Lateral Movement Tracker** | `lateral.py` | Flags internal host fan-out pivoting over administrative management ports (SMB 445, RDP 3389, WinRM 5985, SSH 22, RPC 135). |
 | **5. Data Exfiltration Inspector** | `exfil.py` | Identifies large outbound data transfers, volume skew anomalies, and DNS tunneling payload streams. |
-| **6. DGA & Subdomain Inspector** | `entropy.py` | Detects Domain Generation Algorithms (DGA), randomized DNS queries, and anomalous consonant cluster runs. |
+| **6. DGA & Subdomain Inspector** | `entropy.py` | Detects Domain Generation Algorithms (DGA), randomized DNS queries, and anomalous consonant cluster runs ($H(S) \ge 3.8$). **Mandatory Whitelisting:** Suppresses Active Directory SRV noise (`_ldap._tcp`, `_kerberos._tcp`, `_sites.dc._msdcs`) to ensure zero AD false positives. |
 | **7. Subnet Sweep Detector** | `sweep.py` | Uncovers horizontal reconnaissance sweeps across internal subnets and stateful TCP port scans ($N \ge 10$). |
 | **8. HTTP & Web Shell Auditor** | `http_audit.py` | Flags script-based User-Agents (`curl`, `python-requests`, `powershell`), dangerous HTTP methods (`PUT`, `PROPFIND`), and web shell execution paths. |
 | **9. TLS JA3/JA4 Fingerprinter** | `ja3_fingerprint.py` | Decodes TLS Client Hello records, generates JA3/JA4 fingerprints, and matches known malware signatures (Cobalt Strike, AsyncRAT, Metasploit, Sliver). |

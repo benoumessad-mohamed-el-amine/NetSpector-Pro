@@ -47,6 +47,23 @@ class TestDetectionModules(unittest.TestCase):
         self.assertEqual(len(alerts), 1)
         self.assertEqual(alerts[0].rule_id, "RULE-DNS-DGA-01")
 
+    def test_active_directory_noise_suppression(self):
+        mod = DnsEntropyModule()
+        mod.configure({"entropy": {"entropy_threshold": 3.0, "min_subdomain_len": 5}})
+
+        ad_queries = [
+            "_ldap._tcp.dc._msdcs.corp.internal",
+            "_kerberos._tcp.dc._msdcs.domain.local",
+            "_kpasswd._udp.dc.site._sites.corp.lan",
+            "1.0.0.10.in-addr.arpa",
+        ]
+
+        for q in ad_queries:
+            pkt = PacketRef(1600000000000000, 0, 60, 60, f"flow_{q}", "10.0.0.1", "10.0.0.2", 1234, 53, 17, dns_qname=q)
+            flow = Flow(f"flow_{q}", "10.0.0.1", 1234, "10.0.0.2", 53, 17)
+            alerts = mod.on_packet(pkt, flow)
+            self.assertEqual(len(alerts), 0, f"Expected zero alerts for AD noise query '{q}'")
+
     def test_tcp_state_scans(self):
         mod = TcpStateModule()
         mod.configure({"tcpstate": {"syn_scan_threshold": 3}})

@@ -23,7 +23,7 @@
    - **Engine 3 (`credentials.py`):** Cleartext Credential Sniffer (HTTP Basic Auth, FTP, Telnet, POP3, SMTP).
    - **Engine 4 (`lateral.py`):** Lateral Movement Fan-Out Tracker (SMB 445, RDP 3389, WinRM 5985, SSH 22).
    - **Engine 5 (`exfil.py`):** Data Exfiltration & Volume Skew.
-   - **Engine 6 (`entropy.py`):** Shannon Entropy & DGA Detector ($H(S) \ge 3.8$).
+   - **Engine 6 (`entropy.py`):** Shannon Entropy & DGA Detector ($H(S) \ge 3.8$). Enforces mandatory Active Directory & infrastructure prefix/domain whitelisting (`_ldap._tcp`, `_kerberos._tcp`, `_sites.dc._msdcs`, `.in-addr.arpa`) to eliminate enterprise false positives.
    - **Engine 7 (`sweep.py`):** Stealth Port Scan & Subnet Sweep Detector ($N \ge 10$ target IPs).
    - **Engine 8 (`http_audit.py`):** HTTP Profiling & Web Shell Auditor (`curl`, `python-requests`, dangerous methods `PUT`/`PROPFIND`, web shell paths).
    - **Engine 9 (`ja3_fingerprint.py`):** JA3 & JA4 TLS Client Hello Fingerprinting & Threat Intel signatures.
