@@ -1,11 +1,28 @@
 """Interactive Local Web Dashboard and Standalone HTML Report Generator for NetSpector Pro."""
 
+import io
 import json
+import os
+import tempfile
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Dict, List
+
+from netspector.capture.pcap import PcapReader
+from netspector.capture.pcapng import PcapngReader
 from netspector.carve import PcapCarver
-from netspector.model import Alert
+from netspector.correlate import AttackChainStitcher
+from netspector.flows import FlowTable
+from netspector.model import Alert, Severity
+from netspector.modules.beacon import C2BeaconModule
+from netspector.modules.credentials import CleartextCredentialsModule
+from netspector.modules.entropy import DnsEntropyModule
+from netspector.modules.exfil import ExfiltrationModule
+from netspector.modules.http_audit import HttpAuditModule
+from netspector.modules.ja3_fingerprint import Ja3FingerprintModule
+from netspector.modules.lateral import LateralMovementModule
+from netspector.modules.sweep import SubnetSweepModule
+from netspector.modules.tcpstate import TcpStateModule
 
 
 HTML_TEMPLATE = """<!DOCTYPE html>
@@ -50,6 +67,25 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         h1 { font-size: 24px; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 10px; }
         .logo-badge { background: linear-gradient(135deg, #38bdf8, #818cf8); color: #000; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 800; }
+
+        /* Drag and Drop Zone */
+        .dropzone {
+            background: rgba(30, 41, 59, 0.6);
+            border: 2px dashed var(--accent-blue);
+            border-radius: 12px;
+            padding: 32px;
+            text-align: center;
+            margin-bottom: 28px;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+        }
+        .dropzone.hover {
+            background: rgba(56, 189, 248, 0.15);
+            border-color: #818cf8;
+        }
+        .dropzone-icon { font-size: 36px; margin-bottom: 8px; }
+        .dropzone-title { font-size: 16px; font-weight: 700; color: var(--text-main); }
+        .dropzone-desc { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
 
         .stats-grid {
             display: grid;
@@ -189,9 +225,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
 
     <header>
-        <h1><span class="logo-badge">NETSPECTOR PRO</span> Forensic Triage Dashboard v1.1.0</h1>
+        <h1><span class="logo-badge">NETSPECTOR PRO</span> Forensic Triage Dashboard</h1>
         <div style="font-size: 12px; color: var(--text-muted);">Offline Analysis Engine | Zero Dependencies</div>
     </header>
+
+    <!-- Interactive Drag & Drop PCAP Zone -->
+    <div class="dropzone" id="dropzone" onclick="document.getElementById('file-input').click()">
+        <div class="dropzone-icon">📁</div>
+        <div class="dropzone-title">Drag & Drop PCAP / PCAPNG File Here</div>
+        <div class="dropzone-desc">or click to browse from your computer to analyze immediately</div>
+        <input type="file" id="file-input" style="display: none;" accept=".pcap,.pcapng,.cap" onchange="handleFileSelect(event)">
+    </div>
 
     <div class="stats-grid">
         <div class="stat-card">
@@ -247,11 +291,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </div>
 
     <script>
-        const initialData = __DATA_JSON__;
-        let allAlerts = initialData.alerts || [];
+        let currentData = __DATA_JSON__;
+        let allAlerts = currentData.alerts || [];
         let currentSeverity = 'ALL';
 
         function renderDashboard(data) {
+            currentData = data;
+            allAlerts = data.alerts || [];
+
             const summary = data.metadata ? data.metadata.summary : {};
             document.getElementById('stat-packets').innerText = (summary.total_packets || 0).toLocaleString();
             document.getElementById('stat-flows').innerText = (summary.total_flows || 0).toLocaleString();
@@ -342,15 +389,147 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
         }
 
-        renderDashboard(initialData);
+        // Drag & Drop Handlers
+        const dropzone = document.getElementById('dropzone');
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropzone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                dropzone.classList.add('hover');
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropzone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                dropzone.classList.remove('hover');
+            }, false);
+        });
+
+        dropzone.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            if (files.length > 0) {
+                uploadPcap(files[0]);
+            }
+        });
+
+        function handleFileSelect(e) {
+            const files = e.target.files;
+            if (files.length > 0) {
+                uploadPcap(files[0]);
+            }
+        }
+
+        async function uploadPcap(file) {
+            const title = document.querySelector('.dropzone-title');
+            title.innerText = `⏳ Analyzing '${file.name}'...`;
+
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/octet-stream' },
+                    body: arrayBuffer,
+                });
+                const result = await response.json();
+                title.innerText = `✅ Analyzed '${file.name}'`;
+                renderDashboard(result);
+            } catch (err) {
+                title.innerText = `❌ Error analyzing '${file.name}'`;
+                alert('Failed to analyze PCAP: ' + err);
+            }
+        }
+
+        renderDashboard(currentData);
     </script>
 </body>
 </html>
 """
 
 
+def run_triage_on_pcap_file(filepath: str) -> Dict[str, Any]:
+    """Runs all 10 triage engines on a PCAP file and returns full JSON report dict."""
+    flow_table = FlowTable(max_capacity=200000)
+
+    modules = [
+        C2BeaconModule(),
+        CleartextCredentialsModule(),
+        LateralMovementModule(),
+        ExfiltrationModule(),
+        DnsEntropyModule(),
+        SubnetSweepModule(),
+        HttpAuditModule(),
+        Ja3FingerprintModule(),
+        TcpStateModule(),
+    ]
+
+    collected_alerts: List[Alert] = []
+
+    def handle_flow_close(closed_flow):
+        for m in modules:
+            alerts = m.on_flow_close(closed_flow)
+            if alerts:
+                collected_alerts.extend(alerts)
+
+    flow_table.register_evict_callback(handle_flow_close)
+
+    # Detect pcap format
+    with open(filepath, "rb") as f:
+        magic = f.read(4)
+
+    if magic in (b"\x0a\x0d\x0d\x0a", b"\x0a\x0d\x0d\x0a"):
+        reader = PcapngReader(filepath)
+    else:
+        reader = PcapReader(filepath)
+
+    total_packets = 0
+    with reader as pcap_stream:
+        for pkt in pcap_stream.packets():
+            total_packets += 1
+            flow = flow_table.touch_or_create(pkt)
+            for m in modules:
+                pkt_alerts = m.on_packet(pkt, flow)
+                if pkt_alerts:
+                    collected_alerts.extend(pkt_alerts)
+
+    flow_table.flush_all()
+    for m in modules:
+        fin_alerts = m.finalize()
+        if fin_alerts:
+            collected_alerts.extend(fin_alerts)
+
+    unique_alerts_map = {}
+    for a in collected_alerts:
+        unique_alerts_map[a.alert_id] = a
+    all_alerts = list(unique_alerts_map.values())
+
+    stitcher = AttackChainStitcher(all_alerts)
+    correlation_data = stitcher.correlate()
+
+    sev_counts = {
+        "CRITICAL": sum(1 for a in all_alerts if a.severity == Severity.CRITICAL),
+        "HIGH": sum(1 for a in all_alerts if a.severity == Severity.HIGH),
+        "MEDIUM": sum(1 for a in all_alerts if a.severity == Severity.MEDIUM),
+        "LOW": sum(1 for a in all_alerts if a.severity == Severity.LOW),
+        "INFO": sum(1 for a in all_alerts if a.severity == Severity.INFO),
+    }
+
+    summary_stats = {
+        "total_packets": total_packets,
+        "total_flows": len(flow_table.closed_flows) + len(flow_table),
+        "severity_counts": sev_counts,
+    }
+
+    return {
+        "metadata": {"summary": summary_stats},
+        "attack_chain_correlation": correlation_data,
+        "alerts": [a.to_dict() for a in all_alerts],
+    }
+
+
 class DashboardRequestHandler(BaseHTTPRequestHandler):
-    """HTTP Request Handler for NetSpector Pro local web dashboard."""
+    """HTTP Request Handler for NetSpector Pro local web dashboard with Drag & Drop PCAP upload."""
 
     alerts: List[Alert] = []
     summary_stats: Dict[str, Any] = {}
@@ -402,6 +581,35 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404, "Not Found")
 
+    def do_POST(self):
+        parsed_url = urllib.parse.urlparse(self.path)
+        path = parsed_url.path
+
+        if path == "/api/upload":
+            content_len = int(self.headers.get("Content-Length", 0))
+            raw_data = self.rfile.read(content_len)
+
+            if not raw_data:
+                self._send_json({"error": "No PCAP data received"}, code=400)
+                return
+
+            # Save uploaded binary file to temp PCAP
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pcap") as tmp_f:
+                tmp_f.write(raw_data)
+                tmp_pcap_path = tmp_f.name
+
+            try:
+                result_dict = run_triage_on_pcap_file(tmp_pcap_path)
+                DashboardRequestHandler.summary_stats = result_dict["metadata"]["summary"]
+                DashboardRequestHandler.correlation_data = result_dict["attack_chain_correlation"]
+                DashboardRequestHandler.source_pcap_path = tmp_pcap_path
+
+                self._send_json(result_dict)
+            except Exception as e:
+                self._send_json({"error": f"Failed to triage uploaded PCAP: {e}"}, code=500)
+        else:
+            self.send_error(404, "Not Found")
+
     def _send_json(self, obj: Any, code: int = 200):
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -427,6 +635,7 @@ def start_web_dashboard(
 
     server = HTTPServer(("127.0.0.1", port), DashboardRequestHandler)
     print(f"\n[+] Interactive Web Dashboard running at http://127.0.0.1:{port}")
+    print("[+] Drag & Drop PCAP upload active on dashboard!")
     print("[+] Press Ctrl+C to stop web server.\n")
 
     try:
