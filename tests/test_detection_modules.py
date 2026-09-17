@@ -1,11 +1,11 @@
 """Unit tests for all 4 forensic detection modules."""
 
 import unittest
-from netspector.model import Flow, PacketRef
-from netspector.modules.beacon import C2BeaconModule
-from netspector.modules.entropy import DnsEntropyModule, calculate_shannon_entropy
-from netspector.modules.lateral import LateralMovementModule
-from netspector.modules.tcpstate import TcpStateModule
+from netshark.model import Flow, PacketRef
+from netshark.modules.beacon import C2BeaconModule
+from netshark.modules.entropy import DnsEntropyModule, calculate_shannon_entropy
+from netshark.modules.lateral import LateralMovementModule
+from netshark.modules.tcpstate import TcpStateModule
 
 
 class TestDetectionModules(unittest.TestCase):

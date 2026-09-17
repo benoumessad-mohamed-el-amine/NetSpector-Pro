@@ -4,8 +4,8 @@ import os
 import struct
 import tempfile
 import unittest
-from netspector.capture.pcap import PcapReader
-from netspector.capture.pcapng import PcapngReader
+from netshark.capture.pcap import PcapReader
+from netshark.capture.pcapng import PcapngReader
 
 
 def create_synthetic_pcap_file(filepath: str):

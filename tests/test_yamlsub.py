@@ -1,7 +1,7 @@
 """Unit tests for hand-rolled strict-subset YAML parser."""
 
 import unittest
-from netspector.rules.yamlsub import YAMLParseError, parse_yaml_subset
+from netshark.rules.yamlsub import YAMLParseError, parse_yaml_subset
 
 
 class TestYamlSub(unittest.TestCase):

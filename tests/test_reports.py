@@ -3,9 +3,9 @@
 import os
 import tempfile
 import unittest
-from netspector.model import Alert, KillChainStage, Severity
-from netspector.report.json_rep import export_json_report
-from netspector.report.text import render_text_report
+from netshark.model import Alert, KillChainStage, Severity
+from netshark.report.json_rep import export_json_report
+from netshark.report.text import render_text_report
 
 
 class TestReports(unittest.TestCase):
@@ -19,7 +19,7 @@ class TestReports(unittest.TestCase):
         correlation = {"entities": []}
 
         text_out = render_text_report([alert], summary, correlation)
-        self.assertIn("NETSPECTOR PRO FORENSIC SUMMARY", text_out)
+        self.assertIn("NETSHARK FORENSIC SUMMARY", text_out)
         self.assertIn("ALT-01", text_out)
 
         with tempfile.TemporaryDirectory() as tmp_dir:

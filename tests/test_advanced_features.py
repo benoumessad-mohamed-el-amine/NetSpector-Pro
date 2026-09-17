@@ -3,11 +3,11 @@
 import os
 import tempfile
 import unittest
-from netspector.carve import build_pcapng_epb_with_comment
-from netspector.model import Alert, Flow, KillChainStage, PacketRef, Severity
-from netspector.modules.exfil import ExfiltrationModule
-from netspector.modules.ja3_fingerprint import Ja3FingerprintModule, calculate_ja3_fingerprint, calculate_ja4_fingerprint
-from netspector.report.stix_export import export_stix21_bundle
+from netshark.carve import build_pcapng_epb_with_comment
+from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity
+from netshark.modules.exfil import ExfiltrationModule
+from netshark.modules.ja3_fingerprint import Ja3FingerprintModule, calculate_ja3_fingerprint, calculate_ja4_fingerprint
+from netshark.report.stix_export import export_stix21_bundle
 
 
 class TestAdvancedFeatures(unittest.TestCase):
@@ -44,7 +44,7 @@ class TestAdvancedFeatures(unittest.TestCase):
 
         # Force match test
         ja3_str, ja3_hash = calculate_ja3_fingerprint(pkt.tls_info)
-        from netspector.modules.ja3_fingerprint import KNOWN_SUSPICIOUS_JA3
+        from netshark.modules.ja3_fingerprint import KNOWN_SUSPICIOUS_JA3
         KNOWN_SUSPICIOUS_JA3[ja3_hash] = "Test Cobalt Strike Sign"
 
         alerts = mod.on_packet(pkt, flow)

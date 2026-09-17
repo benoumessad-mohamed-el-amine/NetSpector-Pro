@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <mask id="ns-cut-f">
+    <rect width="100" height="100" fill="#000"/>
+    <g fill="#fff">
+      <path d="M10 36 L48 26 L58 26 L64 8 L74 29 C84 33 90 40 92 46 L100 38 L93 52 L100 66 L88 58 C82 64 74 66 66 66 L60 80 L50 64 C40 63 34 60 30 56 L40 46 L37 40 L34 45 L31 39 L28 44 L25 38 L22 43 L19 37 L16 42 L13 36 Z"/>
+      <path d="M12 45 L18 50 L22 44 L28 52 L32 46 L38 53 L41 52 L36 62 L14 55 Z"/>
+    </g>
+    <ellipse cx="36" cy="36" rx="3.4" ry="2.4" transform="rotate(-14 36 36)" fill="#000"/>
+    <g stroke="#000" stroke-width="2.2" stroke-linecap="round" fill="none">
+      <path d="M50 31 Q47 41 51 51"/>
+      <path d="M55 30 Q52 41 56 51"/>
+      <path d="M60 30 Q57 41 61 51"/>
+      <path d="M65 31 Q62 41 66 50"/>
+    </g>
+  </mask>
+  <rect width="100" height="100" fill="#0E2A3B" mask="url(#ns-cut-f)"/>
+</svg>

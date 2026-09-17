@@ -1,8 +1,8 @@
 """Unit tests for Attack Chain Timeline Stitcher."""
 
 import unittest
-from netspector.correlate import AttackChainStitcher
-from netspector.model import Alert, KillChainStage, Severity
+from netshark.correlate import AttackChainStitcher
+from netshark.model import Alert, KillChainStage, Severity
 
 
 class TestCorrelate(unittest.TestCase):

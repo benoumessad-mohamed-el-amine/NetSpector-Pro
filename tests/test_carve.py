@@ -3,8 +3,8 @@
 import os
 import tempfile
 import unittest
-from netspector.capture.pcap import PcapReader
-from netspector.carve import PcapCarver
+from netshark.capture.pcap import PcapReader
+from netshark.carve import PcapCarver
 from tests.test_pcap_readers import create_synthetic_pcap_file
 
 

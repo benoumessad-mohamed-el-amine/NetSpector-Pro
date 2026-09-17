@@ -3,7 +3,7 @@
 import os
 import tempfile
 import unittest
-from netspector.report.history import HistoryManager
+from netshark.report.history import HistoryManager
 
 
 class TestHistoryManager(unittest.TestCase):

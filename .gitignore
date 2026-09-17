@@ -9,3 +9,7 @@ forensic_sample.pcap
 generate_test_pcap.py
 test_out.json
 test_out.html
+
+# Local scan profile history
+netshark_history/
+netspector_history/

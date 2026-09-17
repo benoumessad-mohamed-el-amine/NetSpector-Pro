@@ -1,13 +1,13 @@
 """Unit tests for NetSpector Pro 12-module expansion, noise scrubbing, and DNS/Payload telemetry."""
 
 import unittest
-from netspector.correlate import AttackChainStitcher, extract_dns_telemetry, extract_suspicious_payloads
-from netspector.model import Alert, Flow, KillChainStage, PacketRef, Severity
-from netspector.modules.beacon import C2BeaconModule
-from netspector.modules.dns_tunnel import DnsTunnelModule
-from netspector.modules.entropy import DnsEntropyModule, is_ad_enterprise_noise
-from netspector.modules.file_carver import FileCarverModule
-from netspector.modules.smb_audit import SmbAuditModule
+from netshark.correlate import AttackChainStitcher, extract_dns_telemetry, extract_suspicious_payloads
+from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity
+from netshark.modules.beacon import C2BeaconModule
+from netshark.modules.dns_tunnel import DnsTunnelModule
+from netshark.modules.entropy import DnsEntropyModule, is_ad_enterprise_noise
+from netshark.modules.file_carver import FileCarverModule
+from netshark.modules.smb_audit import SmbAuditModule
 
 
 class TestNewModulesAndScrubbing(unittest.TestCase):

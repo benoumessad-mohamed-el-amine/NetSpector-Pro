@@ -1,11 +1,11 @@
 """Unit tests for Master Architectural Specification detection engines."""
 
 import unittest
-from netspector.model import Flow, PacketRef
-from netspector.modules.credentials import CleartextCredentialsModule
-from netspector.modules.exfil import ExfiltrationModule
-from netspector.modules.http_audit import HttpAuditModule
-from netspector.modules.sweep import SubnetSweepModule
+from netshark.model import Flow, PacketRef
+from netshark.modules.credentials import CleartextCredentialsModule
+from netshark.modules.exfil import ExfiltrationModule
+from netshark.modules.http_audit import HttpAuditModule
+from netshark.modules.sweep import SubnetSweepModule
 
 
 class TestMasterBlueprintModules(unittest.TestCase):

@@ -1,8 +1,8 @@
 """Unit tests for FlowTable LRU eviction and canonical 5-tuple keys."""
 
 import unittest
-from netspector.flows import FlowTable, canonical_flow_key, flow_key_to_str
-from netspector.model import PacketRef
+from netshark.flows import FlowTable, canonical_flow_key, flow_key_to_str
+from netshark.model import PacketRef
 
 
 class TestFlowTable(unittest.TestCase):
