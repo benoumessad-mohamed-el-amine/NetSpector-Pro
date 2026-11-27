@@ -1,7 +1,19 @@
-"""Core data models for NetSpector Pro."""
+"""Core data models for NetShark."""
 
+import hashlib
 from enum import Enum
 from typing import Any, Dict, List, Optional
+
+
+def stable_id(key: object) -> int:
+    """Deterministic 6-digit bucket for alert IDs.
+
+    Python's built-in hash() is salted per process (PYTHONHASHSEED), so alert IDs
+    built from it changed on every run of the same capture. Forensic references
+    ("see ALT-BEACON-042137") must be reproducible, hence a real digest.
+    """
+    digest = hashlib.blake2s(str(key).encode("utf-8"), digest_size=8).digest()
+    return int.from_bytes(digest, "big") % 1_000_000
 
 
 class Severity(str, Enum):
@@ -135,6 +147,10 @@ class Flow:
 
         self.packet_count: int = 0
         self.byte_count: int = 0
+        # Direction matters for exfil: a 5 MB download and a 5 MB upload are
+        # different stories, and the total alone cannot tell them apart.
+        self.bytes_a_to_b: int = 0
+        self.bytes_b_to_a: int = 0
         self.start_ts_us: int = 0
         self.last_ts_us: int = 0
         self.packet_refs: List[PacketRef] = []
@@ -154,6 +170,10 @@ class Flow:
         self.last_ts_us = pkt.ts_us
         self.packet_count += 1
         self.byte_count += pkt.wirelen
+        if pkt.src_ip == self.endpoint_a_ip and pkt.src_port == self.endpoint_a_port:
+            self.bytes_a_to_b += pkt.wirelen
+        else:
+            self.bytes_b_to_a += pkt.wirelen
         self.packet_refs.append(pkt)
 
     @property

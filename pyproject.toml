@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netshark"
+dynamic = ["version"]
+description = "Offline, dependency-free PCAP/PCAPNG forensic triage engine"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+netshark = "netshark.__main__:main"
+
+[tool.setuptools]
+packages = { find = { include = ["netshark*"] } }
+
+[tool.setuptools.package-data]
+netshark = ["rules/*.yaml", "*.svg"]
+
+[tool.setuptools.dynamic]
+version = { attr = "netshark.__version__" }

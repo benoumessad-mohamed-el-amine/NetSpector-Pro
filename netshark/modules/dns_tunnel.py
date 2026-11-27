@@ -2,7 +2,7 @@
 
 import math
 from typing import Any, Dict, List
-from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity
+from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity, stable_id
 from netshark.modules import BaseModule
 from netshark.modules.entropy import extract_subdomain_parts, is_ad_enterprise_noise
 
@@ -64,7 +64,7 @@ class DnsTunnelModule(BaseModule):
             self.alerted_domains.add(parent_domain)
 
             alert = Alert(
-                alert_id=f"ALT-TUNNEL-{abs(hash(parent_domain)) % 1000000:06d}",
+                alert_id=f"ALT-TUNNEL-{stable_id(parent_domain):06d}",
                 rule_id="RULE-DNS-TUNNEL-01",
                 title="Covert DNS Tunneling & Payload Encapsulation Channel Detected",
                 description=(

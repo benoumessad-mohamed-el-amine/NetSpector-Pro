@@ -1,7 +1,7 @@
 """Module 11: SMB / RPC Named Pipe Auditor."""
 
 from typing import Any, Dict, List
-from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity
+from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity, stable_id
 from netshark.modules import BaseModule
 
 
@@ -60,7 +60,7 @@ class SmbAuditModule(BaseModule):
                 self.seen_alerts.add(alert_key)
 
                 alert = Alert(
-                    alert_id=f"ALT-SMB-PIPE-{abs(hash(alert_key)) % 1000000:06d}",
+                    alert_id=f"ALT-SMB-PIPE-{stable_id(alert_key):06d}",
                     rule_id="RULE-SMB-PIPE-01",
                     title=f"High-Risk SMB Named Pipe Accessed ({pipe_key})",
                     description=(
@@ -99,7 +99,7 @@ class SmbAuditModule(BaseModule):
                 self.seen_alerts.add(alert_key)
 
                 alert = Alert(
-                    alert_id=f"ALT-SMB-SHARE-{abs(hash(alert_key)) % 1000000:06d}",
+                    alert_id=f"ALT-SMB-SHARE-{stable_id(alert_key):06d}",
                     rule_id="RULE-SMB-SHARE-01",
                     title=f"Administrative Share Tree Connect ({share_key.upper()})",
                     description=(

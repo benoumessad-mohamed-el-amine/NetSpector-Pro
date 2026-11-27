@@ -1,34 +1,35 @@
 """Interactive Local Web Dashboard and Standalone HTML Report Generator for NetShark Pro."""
 
-import io
 import json
 import os
 import tempfile
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from netshark.capture.pcap import PcapReader
-from netshark.capture.pcapng import PcapngReader
 from netshark.carve import PcapCarver
-from netshark.correlate import AttackChainStitcher
-from netshark.flows import FlowTable
-from netshark.model import Alert, Severity
-from netshark.modules import (
-    C2BeaconModule,
-    CleartextCredentialsModule,
-    DnsEntropyModule,
-    DnsTunnelModule,
-    ExfiltrationModule,
-    FileCarverModule,
-    HttpAuditModule,
-    Ja3FingerprintModule,
-    LateralMovementModule,
-    SmbAuditModule,
-    SubnetSweepModule,
-    TcpStateModule,
-)
+from netshark.model import Alert
+from netshark.pipeline import triage_file
 from netshark.report.history import HistoryManager
+
+MAX_UPLOAD_BYTES = 1 << 30  # 1 GiB; uploads are buffered to a temp file
+
+
+def embed_json(obj: Any) -> str:
+    """JSON that is safe to place inside an inline <script> block.
+
+    Capture content (DNS names, User-Agents, URLs) is attacker-controlled.
+    A query name containing "</script>" would otherwise close the script tag
+    and inject markup into the analyst's dashboard.
+    """
+    # json.dumps default ensure_ascii already escapes U+2028/U+2029.
+    return (
+        json.dumps(obj)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
+
 
 
 HTML_TEMPLATE = """<!DOCTYPE html>
@@ -36,7 +37,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NetShark Pro 🦈 - Forensic Triage Dashboard</title>
+    <title>NetShark - Forensic Triage Dashboard</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <style>
         :root {
@@ -476,6 +477,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             if (tabId === 'tab-payloads') document.getElementById('tab-btn-payloads').classList.add('active');
         }
 
+        // Every value below can originate from captured traffic (DNS names,
+        // User-Agents, URLs), so it is escaped before touching innerHTML.
+        function esc(v) {
+            return String(v ?? '').replace(/[&<>"'`]/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;'
+            })[c]);
+        }
+
         function renderDashboard(data) {
             activeData = data;
             allAlerts = data.alerts || [];
@@ -496,14 +505,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 card.className = 'entity-card';
                 card.innerHTML = `
                     <div class="entity-header">
-                        <span class="entity-ip">🖥️ Entity Host: ${ent.entity_ip}</span>
-                        <span class="badge badge-HIGH">Plausibility: ${ent.plausibility_score}%</span>
+                        <span class="entity-ip">🖥️ Entity Host: ${esc(ent.entity_ip)}</span>
+                        <span class="badge badge-HIGH">Plausibility: ${esc(ent.plausibility_score)}%</span>
                     </div>
                     <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">
                         Correlated Stages (${ent.stages_covered.length}):
                     </div>
                     <div class="killchain-timeline">
-                        ${ent.stages_covered.map((st, i) => `<div class="kc-stage">${i+1}. ${st}</div>`).join('<span style="color:#64748b">➔</span>')}
+                        ${ent.stages_covered.map((st, i) => `<div class="kc-stage">${i+1}. ${esc(st)}</div>`).join('<span style="color:#64748b">➔</span>')}
                     </div>
                 `;
                 entContainer.appendChild(card);
@@ -518,16 +527,16 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             } else {
                 dnsList.forEach(item => {
                     const tr = document.createElement('tr');
-                    let statusBadge = `<span class="badge badge-INFO">${item.threat_status}</span>`;
+                    let statusBadge = `<span class="badge badge-INFO">${esc(item.threat_status)}</span>`;
                     if (item.threat_status.includes('DGA') || item.threat_status.includes('TUNNEL')) {
-                        statusBadge = `<span class="badge badge-CRITICAL">${item.threat_status}</span>`;
+                        statusBadge = `<span class="badge badge-CRITICAL">${esc(item.threat_status)}</span>`;
                     }
                     tr.innerHTML = `
-                        <td style="font-family: monospace; font-weight: 700; color: var(--accent-blue);">${item.domain}</td>
-                        <td><span class="badge badge-LOW">${item.qtype}</span></td>
-                        <td>${item.count}</td>
-                        <td style="font-weight: 700;">${item.entropy} bits/char</td>
-                        <td>${item.client_ip || 'N/A'}</td>
+                        <td style="font-family: monospace; font-weight: 700; color: var(--accent-blue);">${esc(item.domain)}</td>
+                        <td><span class="badge badge-LOW">${esc(item.qtype)}</span></td>
+                        <td>${esc(item.count)}</td>
+                        <td style="font-weight: 700;">${esc(item.entropy)} bits/char</td>
+                        <td>${esc(item.client_ip || 'N/A')}</td>
                         <td>${statusBadge}</td>
                     `;
                     dnsTbody.appendChild(tr);
@@ -544,12 +553,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 payloadList.forEach(p => {
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
-                        <td>${p.source_ip}</td>
-                        <td>${p.target_ip}:${p.target_port}</td>
-                        <td><span class="badge badge-HIGH">${p.method}</span></td>
-                        <td style="font-family: monospace; color: #a7f3d0; word-break: break-all;">${p.url_or_path}</td>
-                        <td style="font-size: 12px; color: var(--text-muted);">${p.user_agent}</td>
-                        <td><span class="badge badge-CRITICAL">${p.threat_category}</span></td>
+                        <td>${esc(p.source_ip)}</td>
+                        <td>${esc(p.target_ip)}:${esc(p.target_port)}</td>
+                        <td><span class="badge badge-HIGH">${esc(p.method)}</span></td>
+                        <td style="font-family: monospace; color: #a7f3d0; word-break: break-all;">${esc(p.url_or_path)}</td>
+                        <td style="font-size: 12px; color: var(--text-muted);">${esc(p.user_agent)}</td>
+                        <td><span class="badge badge-CRITICAL">${esc(p.threat_category)}</span></td>
                     `;
                     payloadTbody.appendChild(tr);
                 });
@@ -585,21 +594,21 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 const tr = document.createElement('tr');
                 const proofStr = JSON.stringify(alt.arithmetic_proof, null, 2);
                 tr.innerHTML = `
-                    <td style="font-weight: 700; color: var(--accent-blue);">${alt.alert_id}</td>
-                    <td><span class="badge badge-${alt.severity}">${alt.severity}</span></td>
-                    <td style="font-size: 12px; color: var(--text-muted);">${alt.stage}</td>
-                    <td>${alt.source_ip}:${alt.source_port}</td>
-                    <td>${alt.target_ip}:${alt.target_port}</td>
+                    <td style="font-weight: 700; color: var(--accent-blue);">${esc(alt.alert_id)}</td>
+                    <td><span class="badge badge-${esc(alt.severity)}">${esc(alt.severity)}</span></td>
+                    <td style="font-size: 12px; color: var(--text-muted);">${esc(alt.stage)}</td>
+                    <td>${esc(alt.source_ip)}:${esc(alt.source_port)}</td>
+                    <td>${esc(alt.target_ip)}:${esc(alt.target_port)}</td>
                     <td>
-                        <div style="font-weight: 600;">${alt.title}</div>
-                        <div style="font-size: 12px; color: var(--text-muted);">${alt.description}</div>
+                        <div style="font-weight: 600;">${esc(alt.title)}</div>
+                        <div style="font-size: 12px; color: var(--text-muted);">${esc(alt.description)}</div>
                         <details style="margin-top: 4px;">
                             <summary style="font-size: 11px; cursor: pointer; color: var(--accent-blue);">View Arithmetic Proof</summary>
-                            <div class="proof-box">${proofStr}</div>
+                            <div class="proof-box">${esc(proofStr)}</div>
                         </details>
                     </td>
                     <td>
-                        <button class="btn-carve" onclick="carveAlert('${alt.alert_id}')">Carve PCAP</button>
+                        <button class="btn-carve" data-alert-id="${esc(alt.alert_id)}" onclick="carveAlert(this.dataset.alertId)">Carve PCAP</button>
                     </td>
                 `;
                 tbody.appendChild(tr);
@@ -631,7 +640,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
 
             try {
-                const res = await fetch(`/api/history?profile_id=${profId}`);
+                const res = await fetch(`/api/history?profile_id=${encodeURIComponent(profId)}`);
                 const data = await res.json();
                 renderDashboard(data);
             } catch (err) {
@@ -641,7 +650,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         async function carveAlert(alertId) {
             try {
-                const res = await fetch(`/api/carve?alert_id=${alertId}`);
+                const res = await fetch(`/api/carve?alert_id=${encodeURIComponent(alertId)}`);
                 const data = await res.json();
                 alert(data.message || 'PCAP Carved successfully!');
             } catch (err) {
@@ -745,101 +754,49 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 """
 
 
-def run_triage_on_pcap_file(filepath: str) -> Dict[str, Any]:
-    """Runs all 12 triage engines on a PCAP file and returns full JSON report dict."""
-    flow_table = FlowTable(max_capacity=200000)
-
-    modules = [
-        C2BeaconModule(),
-        CleartextCredentialsModule(),
-        LateralMovementModule(),
-        ExfiltrationModule(),
-        DnsEntropyModule(),
-        SubnetSweepModule(),
-        HttpAuditModule(),
-        Ja3FingerprintModule(),
-        TcpStateModule(),
-        FileCarverModule(),
-        SmbAuditModule(),
-        DnsTunnelModule(),
-    ]
-
-    collected_alerts: List[Alert] = []
-
-    def handle_flow_close(closed_flow):
-        for m in modules:
-            alerts = m.on_flow_close(closed_flow)
-            if alerts:
-                collected_alerts.extend(alerts)
-
-    flow_table.register_evict_callback(handle_flow_close)
-
-    with open(filepath, "rb") as f:
-        magic = f.read(4)
-
-    if magic in (b"\x0a\x0d\x0d\x0a", b"\x0a\x0d\x0d\x0a"):
-        reader = PcapngReader(filepath)
-    else:
-        reader = PcapReader(filepath)
-
-    total_packets = 0
-    with reader as pcap_stream:
-        for pkt in pcap_stream.packets():
-            total_packets += 1
-            flow = flow_table.touch_or_create(pkt)
-            for m in modules:
-                pkt_alerts = m.on_packet(pkt, flow)
-                if pkt_alerts:
-                    collected_alerts.extend(pkt_alerts)
-
-    flow_table.flush_all()
-    for m in modules:
-        fin_alerts = m.finalize()
-        if fin_alerts:
-            collected_alerts.extend(fin_alerts)
-
-    unique_alerts_map = {}
-    for a in collected_alerts:
-        unique_alerts_map[a.alert_id] = a
-    all_alerts = list(unique_alerts_map.values())
-
-    stitcher = AttackChainStitcher(all_alerts)
-    correlation_data = stitcher.correlate()
-
-    sev_counts = {
-        "CRITICAL": sum(1 for a in all_alerts if a.severity == Severity.CRITICAL),
-        "HIGH": sum(1 for a in all_alerts if a.severity == Severity.HIGH),
-        "MEDIUM": sum(1 for a in all_alerts if a.severity == Severity.MEDIUM),
-        "LOW": sum(1 for a in all_alerts if a.severity == Severity.LOW),
-        "INFO": sum(1 for a in all_alerts if a.severity == Severity.INFO),
-    }
-
-    summary_stats = {
-        "total_packets": total_packets,
-        "total_flows": len(flow_table.closed_flows) + len(flow_table),
-        "severity_counts": sev_counts,
-    }
-
-    result = {
-        "metadata": {"summary": summary_stats},
-        "attack_chain_correlation": correlation_data,
-        "alerts": [a.to_dict() for a in all_alerts],
-    }
-
-    # Automatically save profile into scan history
-    hist = HistoryManager()
-    hist.save_profile(filepath, result)
-
+def run_triage_on_pcap_file(filepath: str):
+    """Runs the shared pipeline on a capture and archives the result."""
+    result = triage_file(filepath)
+    HistoryManager().save_profile(filepath, result.to_dict())
     return result
 
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
-    """HTTP Request Handler for NetSpector Pro local web dashboard with Drag & Drop PCAP upload and History API."""
+    """Local dashboard: report view, history API, PCAP upload and evidence carving."""
 
     alerts: List[Alert] = []
     summary_stats: Dict[str, Any] = {}
     correlation_data: Dict[str, Any] = {}
     source_pcap_path: str = ""
+    source_is_upload: bool = False
+    allowed_hosts: frozenset = frozenset()
+
+    def _host_allowed(self) -> bool:
+        """Rejects requests whose Host header is not this loopback server.
+
+        Binding to 127.0.0.1 is not enough on its own: with DNS rebinding, a
+        page on attacker.example can resolve its own name to 127.0.0.1 and
+        then read /api/history or trigger uploads. A Host check defeats that.
+        """
+        return self.headers.get("Host", "") in self.allowed_hosts
+
+    def parse_request(self) -> bool:
+        # Hooked here (runs before any do_* method) so the Host check cannot be
+        # forgotten when a new route or verb is added.
+        if not super().parse_request():
+            return False
+        if not self._host_allowed():
+            self.send_error(403, "Forbidden host")
+            return False
+        # Cross-site requests: a "simple" POST (text/plain) skips CORS preflight
+        # entirely, so without this any website the analyst visits could push a
+        # capture into the dashboard. Browsers always send Origin on such
+        # requests; same-origin page JS sends ours, and curl sends none.
+        origin = self.headers.get("Origin")
+        if origin is not None and origin not in {f"http://{h}" for h in self.allowed_hosts}:
+            self.send_error(403, "Cross-origin request refused")
+            return False
+        return True
 
     def do_GET(self):
         parsed_url = urllib.parse.urlparse(self.path)
@@ -852,7 +809,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 "attack_chain_correlation": self.correlation_data,
                 "alerts": [a.to_dict() for a in self.alerts],
             }
-            rendered_html = HTML_TEMPLATE.replace("__DATA_JSON__", json.dumps(data_dict))
+            rendered_html = HTML_TEMPLATE.replace("__DATA_JSON__", embed_json(data_dict))
 
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -887,7 +844,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             matched_alert = next((a for a in self.alerts if a.alert_id == alert_id), None)
 
             if matched_alert and self.source_pcap_path:
-                output_path = f"evidence_{alert_id}.pcap"
+                output_path = f"evidence_{alert_id}.pcapng"
                 carver = PcapCarver(self.source_pcap_path)
                 success = carver.carve_alert(matched_alert, output_path)
                 if success:
@@ -920,28 +877,49 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         path = parsed_url.path
 
         if path == "/api/upload":
-            content_len = int(self.headers.get("Content-Length", 0))
-            raw_data = self.rfile.read(content_len)
-
-            if not raw_data:
+            try:
+                content_len = int(self.headers.get("Content-Length", 0))
+            except ValueError:
+                content_len = 0
+            if content_len <= 0:
                 self._send_json({"error": "No PCAP data received"}, code=400)
                 return
+            if content_len > MAX_UPLOAD_BYTES:
+                self._send_json({"error": "Capture exceeds upload limit; use the CLI for large files"}, code=413)
+                return
 
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pcap") as tmp_f:
-                tmp_f.write(raw_data)
+            # Stream to disk in chunks instead of holding the whole capture in RAM.
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".cap") as tmp_f:
+                remaining = content_len
+                while remaining > 0:
+                    chunk = self.rfile.read(min(remaining, 1 << 20))
+                    if not chunk:
+                        break
+                    tmp_f.write(chunk)
+                    remaining -= len(chunk)
                 tmp_pcap_path = tmp_f.name
 
             try:
-                result_dict = run_triage_on_pcap_file(tmp_pcap_path)
-                DashboardRequestHandler.summary_stats = result_dict["metadata"]["summary"]
-                DashboardRequestHandler.correlation_data = result_dict["attack_chain_correlation"]
-                DashboardRequestHandler.source_pcap_path = tmp_pcap_path
+                result = run_triage_on_pcap_file(tmp_pcap_path)
+            except (ValueError, OSError) as e:
+                os.unlink(tmp_pcap_path)
+                self._send_json({"error": f"Failed to triage uploaded PCAP: {e}"}, code=400)
+                return
 
-                HistoryManager().save_profile("Uploaded PCAP", result_dict)
+            # Swap all session state together. Previously `alerts` was not
+            # updated, so /api/carve applied the *old* capture's file offsets
+            # to the *new* file and wrote wrong packets as evidence.
+            cls = DashboardRequestHandler
+            previous_upload = cls.source_pcap_path if cls.source_is_upload else None
+            cls.alerts = result.alerts
+            cls.summary_stats = result.summary
+            cls.correlation_data = result.correlation
+            cls.source_pcap_path = tmp_pcap_path
+            cls.source_is_upload = True
+            if previous_upload and os.path.exists(previous_upload):
+                os.unlink(previous_upload)
 
-                self._send_json(result_dict)
-            except Exception as e:
-                self._send_json({"error": f"Failed to triage uploaded PCAP: {e}"}, code=500)
+            self._send_json(result.to_dict())
         else:
             self.send_error(404, "Not Found")
 
@@ -974,6 +952,10 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         return
 
 
+def allowed_hosts_for(port: int) -> frozenset:
+    return frozenset({f"127.0.0.1:{port}", f"localhost:{port}"})
+
+
 def start_web_dashboard(
     alerts: List[Alert],
     summary_stats: Dict[str, Any],
@@ -986,10 +968,10 @@ def start_web_dashboard(
     DashboardRequestHandler.summary_stats = summary_stats
     DashboardRequestHandler.correlation_data = correlation_data
     DashboardRequestHandler.source_pcap_path = source_pcap_path
+    DashboardRequestHandler.allowed_hosts = allowed_hosts_for(port)
 
     server = HTTPServer(("127.0.0.1", port), DashboardRequestHandler)
     print(f"\n[+] Interactive Web Dashboard running at http://127.0.0.1:{port}")
-    print("[+] Scan History Profiles active on dashboard!")
     print("[+] Press Ctrl+C to stop web server.\n")
 
     try:
@@ -1011,6 +993,6 @@ def render_static_html(
         "attack_chain_correlation": correlation_data,
         "alerts": [a.to_dict() for a in alerts],
     }
-    rendered = HTML_TEMPLATE.replace("__DATA_JSON__", json.dumps(data_dict))
+    rendered = HTML_TEMPLATE.replace("__DATA_JSON__", embed_json(data_dict))
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(rendered)

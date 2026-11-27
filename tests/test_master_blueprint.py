@@ -61,7 +61,7 @@ class TestMasterBlueprintModules(unittest.TestCase):
         mod.configure({"exfil": {"min_exfil_bytes": 1000}})
 
         flow = Flow("f_exfil", "10.0.0.1", 1234, "1.1.1.1", 443, 6)
-        flow.byte_count = 5000
+        flow.byte_count = flow.bytes_a_to_b = 5000  # 10.0.0.1 -> 1.1.1.1 upload
 
         alerts = mod.on_flow_close(flow)
         self.assertEqual(len(alerts), 1)

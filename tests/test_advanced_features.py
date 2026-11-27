@@ -64,9 +64,9 @@ class TestAdvancedFeatures(unittest.TestCase):
 
     def test_pcapng_epb_comment_builder(self):
         pkt_bytes = b"GET / HTTP/1.1\r\nHost: test.com\r\n\r\n"
-        epb_bytes = build_pcapng_epb_with_comment(pkt_bytes, 1600000000000000, 0, "[NetSpector Alert: TEST]")
+        epb_bytes = build_pcapng_epb_with_comment(pkt_bytes, 1600000000000000, comment_str="[NetShark Alert: TEST]")
         self.assertTrue(epb_bytes.startswith(b"\x00\x00\x00\x06"))
-        self.assertIn(b"[NetSpector Alert: TEST]", epb_bytes)
+        self.assertIn(b"[NetShark Alert: TEST]", epb_bytes)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 import hashlib
 from typing import Any, Dict, List, Optional
-from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity
+from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity, stable_id
 from netshark.modules import BaseModule
 
 
@@ -16,12 +16,26 @@ KNOWN_SUSPICIOUS_JA3 = {
 }
 
 
+def is_grease(value: int) -> bool:
+    """RFC 8701 GREASE values (0x0a0a, 0x1a1a, ... 0xfafa).
+
+    Browsers insert random GREASE values into every ClientHello. JA3/JA4 both
+    exclude them; leaving them in makes the same client hash differently on
+    every connection, so no fingerprint would ever match a known one.
+    """
+    return (value & 0x0F0F) == 0x0A0A and (value >> 8) == (value & 0xFF)
+
+
+def _no_grease(values):
+    return [v for v in values if not is_grease(v)]
+
+
 def calculate_ja3_fingerprint(tls_info: Dict[str, Any]) -> tuple[str, str]:
     """Calculates JA3 string and MD5 hash from decoded TLS Client Hello fields."""
     ver = tls_info.get("version", 0)
-    ciphers = "-".join(str(c) for c in tls_info.get("ciphers", []))
-    extensions = "-".join(str(e) for e in tls_info.get("extensions", []))
-    groups = "-".join(str(g) for g in tls_info.get("supported_groups", []))
+    ciphers = "-".join(str(c) for c in _no_grease(tls_info.get("ciphers", [])))
+    extensions = "-".join(str(e) for e in _no_grease(tls_info.get("extensions", [])))
+    groups = "-".join(str(g) for g in _no_grease(tls_info.get("supported_groups", [])))
     ec_points = "-".join(str(p) for p in tls_info.get("ec_point_formats", []))
 
     ja3_str = f"{ver},{ciphers},{extensions},{groups},{ec_points}"
@@ -30,21 +44,28 @@ def calculate_ja3_fingerprint(tls_info: Dict[str, Any]) -> tuple[str, str]:
 
 
 def calculate_ja4_fingerprint(tls_info: Dict[str, Any]) -> str:
-    """Calculates JA4 TLS Client fingerprint string."""
+    """JA4-style client fingerprint.
+
+    Follows the JA4 layout (sorted, GREASE-free, SHA-256/12 hashes) but is not
+    byte-identical to FoxIO JA4: the decoder does not yet extract ALPN or
+    signature algorithms, so the ALPN field is "00" and the c-part omits them.
+    """
     proto = "t"  # TCP
     ver = "13" if tls_info.get("version") == 0x0304 else "12"
     sni_flag = "d" if tls_info.get("sni") else "i"
-    c_count = f"{min(len(tls_info.get('ciphers', [])), 99):02d}"
-    e_count = f"{min(len(tls_info.get('extensions', [])), 99):02d}"
+    c_count = f"{min(len(_no_grease(tls_info.get('ciphers', []))), 99):02d}"
+    e_count = f"{min(len(_no_grease(tls_info.get('extensions', []))), 99):02d}"
     alpn = "00"
 
     a_part = f"{proto}{ver}{sni_flag}{c_count}{e_count}{alpn}"
 
-    ciphers_str = ",".join(f"{c:04x}" for c in sorted(tls_info.get("ciphers", [])))
-    b_part = hashlib.md5(ciphers_str.encode("utf-8")).hexdigest()[:12]
+    ciphers_str = ",".join(f"{c:04x}" for c in sorted(_no_grease(tls_info.get("ciphers", []))))
+    b_part = hashlib.sha256(ciphers_str.encode("utf-8")).hexdigest()[:12]
 
-    exts_str = ",".join(f"{e:04x}" for e in sorted(tls_info.get("extensions", [])))
-    c_part = hashlib.md5(exts_str.encode("utf-8")).hexdigest()[:12]
+    # JA4 hashes extensions without SNI (0x0000) and ALPN (0x0010); both are
+    # already represented in the a-part.
+    exts_str = ",".join(f"{e:04x}" for e in sorted(_no_grease(tls_info.get("extensions", []))) if e not in (0x0000, 0x0010))
+    c_part = hashlib.sha256(exts_str.encode("utf-8")).hexdigest()[:12]
 
     return f"{a_part}_{b_part}_{c_part}"
 
@@ -78,7 +99,7 @@ class Ja3FingerprintModule(BaseModule):
 
         if malware_match:
             alert = Alert(
-                alert_id=f"ALT-JA3-{abs(hash(ja3_hash)) % 1000000:06d}",
+                alert_id=f"ALT-JA3-{stable_id(ja3_hash):06d}",
                 rule_id="RULE-TLS-JA3-01",
                 title=f"Malicious TLS JA3 Fingerprint: {malware_match}",
                 description=(

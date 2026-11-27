@@ -12,6 +12,28 @@ IDB_TYPE = 0x00000001
 EPB_TYPE = 0x00000006
 SPB_TYPE = 0x00000003
 BYTE_ORDER_MAGIC = 0x1A2B3C4D
+PCAPNG_MAGIC = b"\x0a\x0d\x0d\x0a"
+OPT_ENDOFOPT = 0
+OPT_IF_TSRESOL = 9
+
+
+def parse_if_tsresol(options: bytes, endian: str) -> int:
+    """Returns timestamp units per second from IDB options (default 10^6).
+
+    if_tsresol: MSB clear -> 10^-n seconds, MSB set -> 2^-n seconds.
+    """
+    pos = 0
+    while pos + 4 <= len(options):
+        code, length = struct.unpack(f"{endian}HH", options[pos:pos + 4])
+        if code == OPT_ENDOFOPT:
+            break
+        value = options[pos + 4:pos + 4 + length]
+        if code == OPT_IF_TSRESOL and length >= 1:
+            raw = value[0]
+            exp = raw & 0x7F
+            return (2 ** exp) if raw & 0x80 else (10 ** exp)
+        pos += 4 + length + ((4 - length % 4) % 4)
+    return 1_000_000
 
 
 class PcapngReader:
@@ -81,9 +103,20 @@ class PcapngReader:
             if block_type == IDB_TYPE:
                 if len(body_bytes) >= 8:
                     linktype, reserved, snaplen = struct.unpack(f"{self.endian}HHI", body_bytes[:8])
-                    # Parse IDB options for timestamp resolution if present
-                    tsresol = 6  # Default 10^-6 s (microseconds)
-                    self.interfaces.append({"linktype": linktype, "tsresol": tsresol})
+                    self.interfaces.append({
+                        "linktype": linktype,
+                        "units_per_sec": parse_if_tsresol(body_bytes[8:], self.endian),
+                    })
+
+            elif block_type == SHB_TYPE:
+                # A new section may switch byte order and resets interface IDs.
+                if len(body_bytes) >= 4:
+                    bom = body_bytes[:4]
+                    if bom == b"\x1a\x2b\x3c\x4d":
+                        self.endian = ">"
+                    elif bom == b"\x4d\x3c\x2b\x1a":
+                        self.endian = "<"
+                self.interfaces = []
 
             elif block_type == EPB_TYPE:
                 if len(body_bytes) >= 20:
@@ -91,12 +124,16 @@ class PcapngReader:
                         f"{self.endian}IIIII", body_bytes[:20]
                     )
 
-                    linktype = 1
+                    linktype, units_per_sec = 1, 1_000_000
                     if iface_id < len(self.interfaces):
                         linktype = self.interfaces[iface_id]["linktype"]
+                        units_per_sec = self.interfaces[iface_id]["units_per_sec"]
 
                     ts_raw = (ts_high << 32) | ts_low
-                    ts_us = ts_raw  # Default 10^-6 s timestamp
+                    # Timestamps are in interface-defined units (if_tsresol);
+                    # treating them as microseconds broke every timing-based
+                    # detector on nanosecond captures.
+                    ts_us = ts_raw * 1_000_000 // units_per_sec
 
                     packet_bytes = body_bytes[20:20 + caplen]
                     decoded = decode_packet(packet_bytes, linktype)

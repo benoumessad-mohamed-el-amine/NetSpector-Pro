@@ -2,7 +2,7 @@
 
 import ipaddress
 from typing import Any, Dict, List, Set
-from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity
+from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity, stable_id
 from netshark.modules import BaseModule
 
 
@@ -83,7 +83,7 @@ class LateralMovementModule(BaseModule):
             targets_list = sorted(list({ip for ip, _ in self.host_pivots[src_ip]}))
 
             alert = Alert(
-                alert_id=f"ALT-LATERAL-{abs(hash(src_ip)) % 1000000:06d}",
+                alert_id=f"ALT-LATERAL-{stable_id(src_ip):06d}",
                 rule_id="RULE-LATERAL-MOVE-01",
                 title="Internal Host Lateral Movement & Pivot Activity",
                 description=(

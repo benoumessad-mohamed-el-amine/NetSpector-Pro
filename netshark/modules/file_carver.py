@@ -1,7 +1,7 @@
 """Module 10: File Carving & Magic Byte Inspector for Unencrypted Streams."""
 
 from typing import Any, Dict, List
-from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity
+from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity, stable_id
 from netshark.modules import BaseModule
 
 
@@ -52,7 +52,7 @@ class FileCarverModule(BaseModule):
                 hex_magic = magic.hex()
 
                 alert = Alert(
-                    alert_id=f"ALT-CARVE-{abs(hash(flow.flow_id + magic.decode('latin1', errors='ignore'))) % 1000000:06d}",
+                    alert_id=f"ALT-CARVE-{stable_id(flow.flow_id + magic.decode('latin1', errors='ignore')):06d}",
                     rule_id="RULE-FILE-MAGIC-01",
                     title=f"Binary File Signature Detected ({file_desc})",
                     description=(

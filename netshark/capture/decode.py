@@ -267,7 +267,14 @@ def decode_packet(raw_data: bytes, linktype: int = LINKTYPE_ETHERNET) -> Optiona
             return None
         src_ip = format_ipv4(s_ip)
         dst_ip = format_ipv4(d_ip)
-        l4_data = raw_data[offset + ihl:]
+        # Trim to the IP total length: Ethernet pads short frames to 60 bytes,
+        # and that padding was previously counted as L4 payload.
+        ip_end = offset + tot_len if tot_len >= ihl else len(raw_data)
+        l4_data = raw_data[offset + ihl:ip_end]
+        if frag_off & 0x1FFF:
+            # Non-first fragment: no L4 header here. Parsing its bytes as TCP/UDP
+            # produced random ports and phantom flows.
+            protocol = 0
 
     elif ethertype == ETHERTYPE_IPV6:
         if len(raw_data) < offset + 40:
@@ -279,7 +286,7 @@ def decode_packet(raw_data: bytes, linktype: int = LINKTYPE_ETHERNET) -> Optiona
         protocol = next_header
         src_ip = format_ipv6(s_ip6)
         dst_ip = format_ipv6(d_ip6)
-        l4_data = raw_data[offset + 40:]
+        l4_data = raw_data[offset + 40:offset + 40 + payload_len]
 
     elif ethertype == ETHERTYPE_ARP:
         if len(raw_data) < offset + 28:
@@ -322,6 +329,8 @@ def decode_packet(raw_data: bytes, linktype: int = LINKTYPE_ETHERNET) -> Optiona
             "!HHIIHHHH", tcph
         )
         tcp_header_len = ((offset_reserved_flags >> 12) & 0x0F) * 4
+        if tcp_header_len < 20:
+            return None
         tcp_flags = offset_reserved_flags & 0x01FF
         payload = l4_data[tcp_header_len:]
 

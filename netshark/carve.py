@@ -1,101 +1,155 @@
-"""One-Click PCAP evidence packet carver supporting PCAPNG block comment option injection."""
+"""Evidence carver: copies an alert's packets out of the source capture.
+
+Output is always PCAPNG, whatever the source format, because only PCAPNG can
+carry a per-packet comment (opt_comment). Wireshark shows that comment in the
+packet details pane, so the analyst opening the evidence file sees which alert
+and rule produced it without cross-referencing the report.
+
+Packet bytes are re-read from disk via PacketRef.file_offset; nothing from the
+analysis pass is kept in memory for this.
+"""
 
 import struct
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
+
 from netshark.model import Alert, PacketRef
+
+PCAP_MAGICS = {
+    b"\xa1\xb2\xc3\xd4": (">", False),
+    b"\xd4\xc3\xb2\xa1": ("<", False),
+    b"\xa1\xb2\x3c\x4d": (">", True),
+    b"\x4d\x3c\xb2\xa1": ("<", True),
+}
+PCAPNG_MAGIC = b"\x0a\x0d\x0d\x0a"
+IDB_TYPE = 0x00000001
+EPB_TYPE = 0x00000006
+OPT_COMMENT = 1
+OPT_ENDOFOPT = 0
+
+
+def _pad4(data: bytes) -> bytes:
+    return data + b"\x00" * ((4 - len(data) % 4) % 4)
+
+
+def _block(block_type: int, body: bytes, endian: str = ">") -> bytes:
+    total = 12 + len(body)
+    return struct.pack(f"{endian}II", block_type, total) + body + struct.pack(f"{endian}I", total)
+
+
+def build_shb(endian: str = ">") -> bytes:
+    # byte-order magic, version 1.0, section length unknown (-1)
+    body = struct.pack(f"{endian}IHHq", 0x1A2B3C4D, 1, 0, -1)
+    return _block(0x0A0D0D0A, body, endian)
+
+
+def build_idb(linktype: int, snaplen: int = 0, endian: str = ">") -> bytes:
+    # No if_tsresol option => default microsecond resolution, matching PacketRef.ts_us.
+    return _block(IDB_TYPE, struct.pack(f"{endian}HHI", linktype, 0, snaplen), endian)
 
 
 def build_pcapng_epb_with_comment(
     packet_bytes: bytes,
     ts_us: int,
-    file_offset: int,
-    comment_str: str,
+    wirelen: Optional[int] = None,
+    comment_str: Optional[str] = None,
     endian: str = ">",
 ) -> bytes:
-    """Constructs a PCAPNG Enhanced Packet Block (EPB) with an embedded opt_comment (Option Code 1)."""
+    """Builds an Enhanced Packet Block, optionally carrying opt_comment."""
     caplen = len(packet_bytes)
-    wirelen = caplen
-    iface_id = 0
-
-    ts_high = (ts_us >> 32) & 0xFFFFFFFF
-    ts_low = ts_us & 0xFFFFFFFF
-
-    # Option 1: opt_comment
-    comment_bytes = comment_str.encode("utf-8")
-    opt_len = len(comment_bytes)
-    opt_pad_len = (4 - (opt_len % 4)) % 4
-    opt_block = struct.pack(f"{endian}HH", 1, opt_len) + comment_bytes + (b"\x00" * opt_pad_len)
-
-    # Option 0: opt_endofopt
-    opt_end = struct.pack(f"{endian}HH", 0, 0)
-
-    options_bytes = opt_block + opt_end
-
-    pad_len = (4 - (caplen % 4)) % 4
-    padded_pkt_bytes = packet_bytes + (b"\x00" * pad_len)
-
-    # Total block length = 12 (hdr) + 20 (epb fields) + len(padded_pkt) + len(options) + 4 (dup len)
-    block_total_len = 12 + 20 + len(padded_pkt_bytes) + len(options_bytes) + 4
-
-    epb_hdr = struct.pack(
-        f"{endian}IIIIIII",
-        0x00000006,  # EPB type
-        block_total_len,
-        iface_id,
-        ts_high,
-        ts_low,
+    body = struct.pack(
+        f"{endian}IIIII",
+        0,  # interface id
+        (ts_us >> 32) & 0xFFFFFFFF,
+        ts_us & 0xFFFFFFFF,
         caplen,
-        wirelen,
-    )
-
-    dup_len = struct.pack(f"{endian}I", block_total_len)
-
-    return epb_hdr + padded_pkt_bytes + options_bytes + dup_len
+        wirelen if wirelen is not None else caplen,
+    ) + _pad4(packet_bytes)
+    if comment_str:
+        c = comment_str.encode("utf-8")
+        body += struct.pack(f"{endian}HH", OPT_COMMENT, len(c)) + _pad4(c)
+        body += struct.pack(f"{endian}HH", OPT_ENDOFOPT, 0)
+    return _block(EPB_TYPE, body, endian)
 
 
 class PcapCarver:
-    """Fast binary packet carver that extracts evidence packets into clean mini-PCAP/PCAPNG files."""
+    """Extracts evidence packets from a PCAP or PCAPNG source into a PCAPNG file."""
 
     def __init__(self, source_pcap_path: str):
         self.source_pcap_path = source_pcap_path
 
-    def carve_packets(self, packet_refs: List[PacketRef], output_pcap_path: str, comment: Optional[str] = None) -> bool:
-        """Carves specified PacketRefs from source capture into a clean standalone PCAP file."""
+    def _source_layout(self, f) -> Tuple[str, str, Dict[int, int]]:
+        """Returns (format, endian, {interface_id: linktype}) for the source."""
+        head = f.read(24)
+        if head[:4] in PCAP_MAGICS:
+            endian, _ = PCAP_MAGICS[head[:4]]
+            linktype = struct.unpack(f"{endian}I", head[20:24])[0]
+            return "pcap", endian, {0: linktype}
+        if head[:4] == PCAPNG_MAGIC:
+            endian = ">" if head[8:12] == b"\x1a\x2b\x3c\x4d" else "<"
+            links: Dict[int, int] = {}
+            f.seek(0)
+            # IDBs precede the packets that reference them; scan until the first EPB.
+            while True:
+                hdr = f.read(8)
+                if len(hdr) < 8:
+                    break
+                btype, blen = struct.unpack(f"{endian}II", hdr)
+                if blen < 12:
+                    break
+                if btype == IDB_TYPE:
+                    links[len(links)] = struct.unpack(f"{endian}H", f.read(2))[0]
+                    f.seek(blen - 10, 1)
+                elif btype == EPB_TYPE:
+                    break
+                else:
+                    f.seek(blen - 8, 1)
+            return "pcapng", endian, links or {0: 1}
+        raise ValueError("Unrecognised capture format")
+
+    def _read_frame(self, f, fmt: str, endian: str, ref: PacketRef) -> Optional[Tuple[bytes, int]]:
+        """Returns (frame_bytes, interface_id) for the packet at ref.file_offset."""
+        f.seek(ref.file_offset)
+        if fmt == "pcap":
+            hdr = f.read(16)
+            if len(hdr) < 16:
+                return None
+            caplen = struct.unpack(f"{endian}I", hdr[8:12])[0]
+            return f.read(caplen), 0
+        hdr = f.read(28)  # block type, block len, iface, ts_hi, ts_lo, caplen, wirelen
+        if len(hdr) < 28:
+            return None
+        btype, _, iface, _, _, caplen, _ = struct.unpack(f"{endian}IIIIIII", hdr)
+        if btype != EPB_TYPE:
+            return None
+        return f.read(caplen), iface
+
+    def carve_packets(self, packet_refs: List[PacketRef], output_path: str, comment: Optional[str] = None) -> bool:
+        """Writes packet_refs to output_path as PCAPNG. Returns False if nothing was written."""
         if not packet_refs:
             return False
-
-        sorted_refs = sorted(packet_refs, key=lambda p: p.file_offset)
-
         try:
-            with open(self.source_pcap_path, "rb") as src_f:
-                global_hdr = src_f.read(24)
+            with open(self.source_pcap_path, "rb") as src:
+                fmt, endian, links = self._source_layout(src)
+                frames = []
+                for ref in sorted(packet_refs, key=lambda p: p.file_offset):
+                    got = self._read_frame(src, fmt, endian, ref)
+                    if got:
+                        frames.append((ref, *got))
+            if not frames:
+                return False
 
-                with open(output_pcap_path, "wb") as dst_f:
-                    if len(global_hdr) == 24 and global_hdr[:4] in (
-                        b"\xa1\xb2\xc3\xd4", b"\xd4\xc3\xb2\xa1",
-                        b"\xa1\xb2\x3c\x4d", b"\x4d\x3c\xb2\xa1"
-                    ):
-                        dst_f.write(global_hdr)
-                    else:
-                        fallback_hdr = struct.pack(">IHHIIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 1)
-                        dst_f.write(fallback_hdr)
-
-                    for ref in sorted_refs:
-                        src_f.seek(ref.file_offset)
-                        record_header = src_f.read(16)
-                        if len(record_header) < 16:
-                            continue
-
-                        payload_bytes = src_f.read(ref.caplen)
-                        dst_f.write(record_header)
-                        dst_f.write(payload_bytes)
-
+            # Single output interface: use the linktype of the first frame's interface.
+            linktype = links.get(frames[0][2], 1)
+            with open(output_path, "wb") as dst:
+                dst.write(build_shb())
+                dst.write(build_idb(linktype))
+                for ref, data, _ in frames:
+                    dst.write(build_pcapng_epb_with_comment(data, ref.ts_us, ref.wirelen, comment))
             return True
-        except Exception as e:
-            print(f"Error carving PCAP file '{output_pcap_path}': {e}")
+        except (OSError, ValueError, struct.error) as e:
+            print(f"Error carving evidence file '{output_path}': {e}")
             return False
 
-    def carve_alert(self, alert: Alert, output_pcap_path: str) -> bool:
-        """Convenience method to carve all evidence packets associated with an Alert."""
-        comment_note = f"[NetSpector Alert: {alert.alert_id}] {alert.rule_id} - {alert.title}"
-        return self.carve_packets(alert.packet_refs, output_pcap_path, comment=comment_note)
+    def carve_alert(self, alert: Alert, output_path: str) -> bool:
+        comment = f"[NetShark {alert.alert_id}] {alert.rule_id} - {alert.title}"
+        return self.carve_packets(alert.packet_refs, output_path, comment=comment)

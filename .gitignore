@@ -13,3 +13,7 @@ test_out.html
 # Local scan profile history
 netshark_history/
 netspector_history/
+
+# Build output (produced by build.py / CI, attached to releases)
+*.pyz
+evidence_*.pcapng

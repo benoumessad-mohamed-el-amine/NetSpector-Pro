@@ -2,7 +2,7 @@
 
 import re
 from typing import Any, Dict, List, Optional, Tuple
-from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity
+from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity, stable_id
 from netshark.modules import BaseModule
 
 
@@ -62,7 +62,7 @@ class HttpAuditModule(BaseModule):
             if re.search(pat, uri, re.IGNORECASE):
                 self.seen_flows.add(flow.flow_id)
                 alerts.append(Alert(
-                    alert_id=f"ALT-WEBSHELL-{abs(hash(flow.flow_id)) % 1000000:06d}",
+                    alert_id=f"ALT-WEBSHELL-{stable_id(flow.flow_id):06d}",
                     rule_id="RULE-HTTP-WEBSHELL-01",
                     title="Potential Web Shell Execution Attempt Detected",
                     description=f"HTTP request from {pkt.src_ip} contains web shell URI pattern: '{uri[:60]}'.",
@@ -94,7 +94,7 @@ class HttpAuditModule(BaseModule):
                     if flow.flow_id not in self.seen_flows:
                         self.seen_flows.add(flow.flow_id)
                         alerts.append(Alert(
-                            alert_id=f"ALT-SCRIPTUA-{abs(hash(flow.flow_id)) % 1000000:06d}",
+                            alert_id=f"ALT-SCRIPTUA-{stable_id(flow.flow_id):06d}",
                             rule_id="RULE-HTTP-USERAGENT-01",
                             title=f"Automated Script / Scanner User-Agent: {user_agent[:30]}",
                             description=f"HTTP request from {pkt.src_ip} uses automated tool User-Agent string '{user_agent}'.",
@@ -123,7 +123,7 @@ class HttpAuditModule(BaseModule):
             if flow.flow_id not in self.seen_flows:
                 self.seen_flows.add(flow.flow_id)
                 alerts.append(Alert(
-                    alert_id=f"ALT-HTTPMETHOD-{abs(hash(flow.flow_id)) % 1000000:06d}",
+                    alert_id=f"ALT-HTTPMETHOD-{stable_id(flow.flow_id):06d}",
                     rule_id="RULE-HTTP-METHOD-01",
                     title=f"Dangerous Non-Standard HTTP Method: {method}",
                     description=f"HTTP request from {pkt.src_ip} issued non-standard HTTP method '{method}'.",

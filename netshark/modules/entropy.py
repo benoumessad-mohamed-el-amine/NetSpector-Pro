@@ -2,7 +2,7 @@
 
 import math
 from typing import Any, Dict, List, Tuple
-from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity
+from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity, stable_id
 from netshark.modules import BaseModule
 
 
@@ -124,7 +124,7 @@ class DnsEntropyModule(BaseModule):
             self.seen_domains.add(qname)
 
             alert = Alert(
-                alert_id=f"ALT-DGA-{abs(hash(qname)) % 1000000:06d}",
+                alert_id=f"ALT-DGA-{stable_id(qname):06d}",
                 rule_id="RULE-DNS-DGA-01",
                 title="High Shannon Entropy / DGA Domain Query Detected",
                 description=(
