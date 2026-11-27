@@ -2,12 +2,17 @@
 
 import json
 import os
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 
 DEFAULT_HISTORY_DIR = "netshark_history"
+
+# profile_id arrives from the web API query string. Without this check,
+# "?profile_id=../../x" read or deleted arbitrary .json files on disk.
+PROFILE_ID_RE = re.compile(r"^PROF-\d{8}-\d{6}-\d{4}$")
 
 
 class HistoryManager:
@@ -76,10 +81,15 @@ class HistoryManager:
         profiles.sort(key=lambda p: p.get("timestamp_unix", 0), reverse=True)
         return profiles
 
+    def _profile_path(self, profile_id: str) -> Optional[str]:
+        if not isinstance(profile_id, str) or not PROFILE_ID_RE.match(profile_id):
+            return None
+        return os.path.join(self.history_dir, f"{profile_id}.json")
+
     def get_profile(self, profile_id: str) -> Optional[Dict[str, Any]]:
         """Loads and returns the complete triage report for a given profile_id."""
-        filepath = os.path.join(self.history_dir, f"{profile_id}.json")
-        if not os.path.isfile(filepath):
+        filepath = self._profile_path(profile_id)
+        if filepath is None or not os.path.isfile(filepath):
             return None
 
         try:
@@ -92,8 +102,8 @@ class HistoryManager:
 
     def delete_profile(self, profile_id: str) -> bool:
         """Deletes a history profile file."""
-        filepath = os.path.join(self.history_dir, f"{profile_id}.json")
-        if os.path.isfile(filepath):
+        filepath = self._profile_path(profile_id)
+        if filepath and os.path.isfile(filepath):
             try:
                 os.remove(filepath)
                 return True

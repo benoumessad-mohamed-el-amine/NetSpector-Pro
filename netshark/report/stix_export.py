@@ -1,4 +1,4 @@
-"""STIX 2.1 Threat Intelligence JSON Bundle exporter for NetSpector Pro."""
+"""STIX 2.1 Threat Intelligence JSON Bundle exporter for NetShark."""
 
 import json
 import uuid
@@ -24,7 +24,7 @@ def export_stix21_bundle(alerts: List[Alert], output_path: str) -> bool:
             "id": indicator_id,
             "created": now_iso,
             "modified": now_iso,
-            "name": f"NetSpector: {alert.title}",
+            "name": f"NetShark: {alert.title}",
             "description": alert.description,
             "indicator_types": ["malicious-activity"],
             "pattern": f"[ipv4-addr:value = '{alert.source_ip}'] AND [ipv4-addr:value = '{alert.target_ip}']",

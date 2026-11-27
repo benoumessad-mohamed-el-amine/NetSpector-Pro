@@ -1,4 +1,4 @@
-# NetSpector Pro Default Master Architectural Rules Configuration
+# NetShark Default Master Architectural Rules Configuration
 
 beacon:
   enabled: true
