@@ -14,7 +14,7 @@ SHEBANG = "/usr/bin/env python3"
 
 
 def build():
-    print(f"[*] Packaging NetShark Pro 🦈 from '{SOURCE_DIR}' into '{OUTPUT_PYZ}'...")
+    print(f"[*] Packaging NetShark from '{SOURCE_DIR}' into '{OUTPUT_PYZ}'...")
 
     if not os.path.exists(SOURCE_DIR):
         print(f"Error: Source directory '{SOURCE_DIR}' not found.")
@@ -27,7 +27,7 @@ def build():
     with tempfile.TemporaryDirectory() as temp_dir:
         # Copy netshark package into temp staging directory
         dest_pkg = os.path.join(temp_dir, "netshark")
-        shutil.copytree(SOURCE_DIR, dest_pkg)
+        shutil.copytree(SOURCE_DIR, dest_pkg, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
 
         # Create root __main__.py inside zipapp staging
         root_main = os.path.join(temp_dir, "__main__.py")

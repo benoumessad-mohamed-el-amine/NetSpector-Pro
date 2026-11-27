@@ -1,122 +1,91 @@
-# NetSpector Pro 🛡️
-> **Offline, Client-Side Automated PCAP & Network-Log Forensic Triage Engine**
+# NetShark
 
-[![Python Version](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![Dependencies](https://img.shields.io/badge/dependencies-zero%20stdlib--only-brightgreen.svg)]()
-[![Build](https://img.shields.io/badge/build-netspector.pyz%20(290KB)-purple.svg)]()
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)]()
+Offline network-forensics triage for PCAP/PCAPNG captures. Point it at a capture and it streams every packet through twelve detectors (C2 beaconing, DGA domains, DNS tunnelling, lateral movement, scans, cleartext credentials, exfiltration and more). It then stitches the alerts into per-host attack timelines and writes Wireshark-ready evidence files for each finding.
 
-NetSpector Pro is a high-precision forensic co-pilot built for Incident Response (IR) teams, SOC analysts, and threat hunters. It analyzes raw PCAP/PCAPNG network captures and live network streams entirely offline with **zero external dependencies**, low false positives, and bounded memory usage—pinpointing threat activity across the Cyber Kill Chain and extracting actionable PCAP evidence files for immediate analysis.
+It runs on the Python standard library alone: no `scapy`, no `dpkt`, no `pip install`. That lets it go onto an isolated forensics workstation as a single ~200 KB file.
 
----
+[![ci](https://github.com/benoumessad-mohamed-el-amine/NetSpector-Pro/actions/workflows/ci.yml/badge.svg)](https://github.com/benoumessad-mohamed-el-amine/NetSpector-Pro/actions/workflows/ci.yml)
+![python](https://img.shields.io/badge/python-3.11%2B-blue)
+![deps](https://img.shields.io/badge/runtime%20deps-0-brightgreen)
+![license](https://img.shields.io/badge/license-MIT-blue)
 
-## 🌟 Core Features & Security Capabilities
+> **Why the design looks the way it does** (the stdlib-only constraint, the streaming memory model, how the beacon statistics were chosen, the threat model for hostile captures) is written up in the **[project wiki](https://github.com/benoumessad-mohamed-el-amine/NetSpector-Pro/wiki)**.
 
-- 🔒 **Zero External Dependencies:** Runs 100% on the Python standard library. No `pip` packages, no `scapy`, no `dpkt`, and no `PyYAML` required. Distributed as a single self-contained binary executable (`netspector.pyz`).
-- ⚡ **High-Speed Stream Triage:** Bounded LRU flow engine (200,000 capacity) using lightweight packet indexing (`PacketRef`) to parse gigabyte-scale packet captures with minimal memory overhead.
-- 🔍 **Low False-Positive Threat Hunting:** Minimum sample gates, stateful TCP tracking, and threat signatures prioritize actionable, high-confidence forensic findings over noisy alerts.
-- 🛠️ **Cyber Kill Chain Campaign Correlation:** Automatically stitches isolated network events into an integrated campaign timeline per host entity, scoring campaign plausibility.
-- 📁 **Scan History & Session Profiles:** Automatically archives forensic triage sessions into `./netspector_history/` as persistent JSON profiles. Switch between past triage sessions dynamically in the Web UI dashboard or REST API.
-- 📤 **Drag & Drop UI Analysis:** Integrated browser dropzone with live analysis progress bar for immediate offline PCAP triage without leaving the Web Dashboard.
-- ✂️ **One-Click Wireshark Evidence Carving:** Instant seek-and-copy binary packet carving that extracts suspicious network flows into standalone PCAP evidence files with embedded Wireshark details panel notes.
-- 📊 **STIX 2.1 Threat Intel Export:** Generates standardized STIX 2.1 JSON Bundles for seamless SIEM, SOAR, and MISP platform ingestion.
+## What it finds
 
----
+| Detector | Signal | Kill-chain stage |
+|---|---|---|
+| C2 beaconing | Inter-arrival-time regularity: coefficient of variation ≤ 0.20 **and** MAD/median ≤ 0.25 over ≥ 12 samples | Command & Control |
+| DGA domains | Shannon entropy ≥ 3.8 bits/char or ≥ 5-consonant runs, after AD/SRV and cloud-telemetry suppression | Command & Control |
+| DNS tunnelling | Per-parent-domain query volume, long subdomains, TXT/NULL/CNAME/MX skew | Exfiltration |
+| Exfiltration | Internal → external flows that are upload-heavy (bytes out ≥ 5 MB and out/in ≥ 10×) | Exfiltration |
+| Lateral movement | One internal host fanning out to ≥ 15 internal targets on admin ports (SMB, RDP, WinRM, SSH, RPC, Kerberos) | Lateral Movement |
+| Subnet sweep / SYN scan | ≥ 10 distinct targets via half-open SYNs or ICMP echo | Reconnaissance |
+| TCP flag anomalies | NULL, XMAS, FIN-without-ACK, SYN+FIN | Reconnaissance |
+| Cleartext credentials | HTTP Basic, FTP, POP3, SMTP AUTH (passwords masked in output) | Credential Access |
+| HTTP audit | Script User-Agents, web-shell paths, `PUT`/`PROPFIND`/`TRACE` | Execution |
+| TLS fingerprinting | JA3 / JA4 from the ClientHello, matched against known C2 frameworks | Command & Control |
+| SMB / RPC | Named pipes used by remote-exec tooling (`svcctl`, `samr`, `lsarpc`…), `ADMIN$` / `C$` | Lateral Movement |
+| File transfer | PE / ELF / ZIP / PDF / RAR / 7z magic bytes on cleartext channels | Execution |
 
-## 🛡️ The 12 Automated Forensic Triage Engines
+Every alert carries an `arithmetic_proof`: the measured values and the threshold each one was compared against. An analyst can see *why* something fired without reading the source.
 
-| Engine | Module | Forensic Detection Capability |
-| :--- | :--- | :--- |
-| **1. TCP Session Reassembly** | `flows.py` | Stateful canonical 5-tuple LRU flow tracking, bidirectional stream indexing, and connection metrics. |
-| **2. C2 Beaconing Analyzer** | `beacon.py` | Detects periodic command-and-control implant timing regularity and automated beaconing intervals ($N \ge 12$) with transport keepalive filtering. |
-| **3. Cleartext Credential Sniffer** | `credentials.py` | Extracts exposed authentication strings over unencrypted protocols (HTTP Basic Auth, FTP, Telnet, POP3, SMTP). |
-| **4. Lateral Movement Tracker** | `lateral.py` | Flags internal host fan-out pivoting over administrative management ports (SMB 445, RDP 3389, WinRM 5985, SSH 22, RPC 135). |
-| **5. Data Exfiltration Inspector** | `exfil.py` | Identifies large outbound data transfers, volume skew anomalies, and asymmetric exfiltration streams. |
-| **6. DGA & Subdomain Inspector** | `entropy.py` | Detects Domain Generation Algorithms (DGA), randomized DNS queries, and anomalous consonant cluster runs ($H(S) \ge 3.8$). **Mandatory Whitelisting:** Suppresses Active Directory SRV noise (`_ldap._tcp`, `_kerberos._tcp`) and cloud telemetry domains (`.microsoft.com`, `.googleapis.com`, `.azure.com`, `.amazonaws.com`). |
-| **7. Subnet Sweep Detector** | `sweep.py` | Uncovers horizontal reconnaissance sweeps across internal subnets and stateful TCP port scans ($N \ge 10$). |
-| **8. HTTP & Web Shell Auditor** | `http_audit.py` | Flags script-based User-Agents (`curl`, `python-requests`, `powershell`), dangerous HTTP methods (`PUT`, `PROPFIND`), and web shell execution paths. |
-| **9. TLS JA3/JA4 Fingerprinter** | `ja3_fingerprint.py` | Decodes TLS Client Hello records, generates JA3/JA4 fingerprints, and matches known malware signatures (Cobalt Strike, AsyncRAT, Metasploit, Sliver). |
-| **10. File Carver & Magic Bytes** | `file_carver.py` | Scans payload streams for binary file signatures (`MZ` PE, `PK` ZIP, `%PDF-`, `\x7fELF`, `Rar!`, `7z`) transferred over unencrypted channels. |
-| **11. SMB / RPC Pipe Auditor** | `smb_audit.py` | Deep-dives into SMB sessions to detect access to dangerous exploitation named pipes (`\pipe\svcctl`, `\pipe\samr`, `\pipe\lsarpc`) and administrative shares (`ADMIN$`, `C$`). |
-| **12. Advanced DNS Tunneling** | `dns_tunnel.py` | Analyzes anomalous DNS record type distributions (`TXT`, `CNAME`, `NULL`, `MX`) and high-entropy request repetition ratios ($N \ge 8$). |
-
----
-
-## 🏗️ Project Architecture
-
-```
-NetSpector-Pro/
-├── build.py                     # Standalone zipapp build script
-├── netspector.pyz               # Single executable binary (290 KB)
-├── netspector/
-│   ├── __init__.py              # Package version metadata
-│   ├── __main__.py              # CLI entry point, argument parsing & workflow orchestrator
-│   ├── model.py                 # Core data models: PacketRef (__slots__), Alert, Flow, Severity
-│   ├── flows.py                 # Canonical 5-tuple key & LRU FlowTable (200k cap)
-│   ├── correlate.py             # Attack Chain Timeline Stitcher & Kill-Chain stage mapper
-│   ├── carve.py                 # Seek-and-copy PCAP evidence carver with Wireshark comment injection
-│   ├── capture/
-│   │   ├── decode.py            # Binary decoders (Eth, VLAN, IPv4, IPv6, ARP, TCP, UDP, DNS, ICMP, TLS)
-│   │   ├── pcap.py              # Classic PCAP stream reader (magic bytes, micro/nanosec, endianness)
-│   │   ├── pcapng.py            # PCAPNG stream reader (SHB, IDB, EPB blocks, 64-bit timestamps)
-│   │   └── live.py              # Live raw socket sniffer (socket.AF_PACKET)
-│   ├── modules/
-│   │   ├── beacon.py            # Module 1: C2 Beaconing Analyzer
-│   │   ├── credentials.py       # Module 2: Cleartext Credential Sniffer
-│   │   ├── lateral.py           # Module 3: Lateral Movement Fan-Out Tracker
-│   │   ├── exfil.py             # Module 4: Data Exfiltration & Volume Skew
-│   │   ├── entropy.py           # Module 5: DGA & Subdomain Inspector
-│   │   ├── sweep.py             # Module 6: Subnet Sweep Detector
-│   │   ├── http_audit.py        # Module 7: HTTP Profiling & Web Shell Auditor
-│   │   ├── ja3_fingerprint.py   # Module 8: TLS JA3/JA4 Fingerprinter
-│   │   └── tcpstate.py          # Module 9: TCP State Machine Auditor
-│   ├── rules/
-│   │   ├── yamlsub.py           # Strict-subset YAML parser with line-numbered error reporting
-│   │   └── defaults.yaml        # Baseline detection thresholds
-│   └── report/
-│       ├── text.py              # CLI terminal text summary renderer
-│       ├── json_rep.py          # Structured JSON triage report exporter
-│       ├── stix_export.py       # STIX 2.1 Threat Intel JSON Bundle exporter
-│       ├── history.py           # Scan History & Session Profiles Manager
-│       └── html_rep.py          # Local http.server REST server & responsive Web UI dashboard
-└── tests/                       # Complete unit test suite (23/23 passing)
-```
-
----
-
-## 🚀 Quickstart & Usage
-
-### 1. Build Standalone Executable
-```bash
-python3 build.py
-```
-This packages the core engine into a single `./netspector.pyz` executable binary.
-
-### 2. Forensic Triage Examples
+## Quick start
 
 ```bash
-# Basic terminal summary output
-./netspector.pyz /path/to/capture.pcap
+# Run from source
+python -m netshark capture.pcap
 
-# Sniff live network traffic directly from an interface (Linux raw socket)
-./netspector.pyz -i eth0
+# Or build the single-file executable
+python build.py
+./netshark.pyz capture.pcapng --json report.json --stix bundle.json --html report.html
 
-# Export JSON report, STIX 2.1 Threat Intel Bundle, and static HTML report
-./netspector.pyz /path/to/capture.pcap --json report.json --stix stix_bundle.json --html report.html
+# Carve one PCAPNG evidence file per alert (Wireshark shows the alert in the packet comment)
+./netshark.pyz capture.pcap --carve-all
 
-# Automatically carve mini-PCAP evidence files for all triggered alerts
-./netspector.pyz /path/to/capture.pcap --carve-all
+# Local dashboard on http://127.0.0.1:8080 (drag-and-drop more captures into it)
+./netshark.pyz capture.pcap --web
 
-# Launch interactive local Web UI dashboard (http://127.0.0.1:8080)
-./netspector.pyz /path/to/capture.pcap --web --port 8080
+# Live capture (Linux, needs CAP_NET_RAW)
+sudo ./netshark.pyz -i eth0
 ```
 
-### 3. Run Unit Test Suite
+You can override thresholds with `--rules my_rules.yaml` (see [`netshark/rules/defaults.yaml`](netshark/rules/defaults.yaml)). Any detector can be switched off with `enabled: false`.
+
+## Outputs
+
+- **Terminal summary**: alerts ordered by severity, each with its proof.
+- **JSON**: the full report, including per-host kill-chain timelines.
+- **STIX 2.1 bundle**: for import into MISP, OpenCTI or a SIEM.
+- **HTML**: a self-contained report you can attach to a ticket.
+- **Evidence PCAPNGs**: only the packets behind each alert, annotated.
+
+## Layout
+
+```
+netshark/
+├── capture/     PCAP + PCAPNG streaming readers, live AF_PACKET reader, L2–L7 decoder
+├── modules/     the twelve detectors (shared configure / on_packet / on_flow_close / finalize contract)
+├── flows.py     bounded LRU flow table, canonical bidirectional 5-tuple keys
+├── pipeline.py  the single triage loop used by both the CLI and the dashboard
+├── correlate.py per-host kill-chain timelines and plausibility scoring
+├── carve.py     evidence extraction to annotated PCAPNG
+├── rules/       strict-subset YAML parser + default thresholds
+└── report/      text, JSON, STIX 2.1, HTML, history, local dashboard server
+```
+
+## Development
+
 ```bash
-python3 -m unittest discover -s tests -p "test_*.py" -v
+python -m unittest discover -s tests -v   # no dependencies to install, on purpose
 ```
 
----
+CI runs the suite on Python 3.11–3.13 on a bare interpreter, which is what enforces the zero-dependency rule. It then builds and smoke-tests the `.pyz`.
 
-## 📄 License
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+## Limits
+
+There is no TCP stream reassembly: payload detectors see one segment at a time. IPv6 extension headers are not walked. The flow table caps active flows, but a single very long flow keeps every packet reference it has seen. The wiki has the full list and the reasoning behind each limit.
+
+## License
+
+MIT
