@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 from netshark.capture.pcap import PcapReader
+from netshark.capture.pcapng import PcapngReader
 from netshark.carve import PcapCarver
 from tests.test_pcap_readers import create_synthetic_pcap_file
 
@@ -12,7 +13,7 @@ class TestCarve(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.source_pcap = os.path.join(self.temp_dir.name, "source.pcap")
-        self.output_pcap = os.path.join(self.temp_dir.name, "carved.pcap")
+        self.output_pcap = os.path.join(self.temp_dir.name, "carved.pcapng")
         create_synthetic_pcap_file(self.source_pcap)
 
     def tearDown(self):
@@ -28,7 +29,7 @@ class TestCarve(unittest.TestCase):
         self.assertTrue(success)
         self.assertTrue(os.path.exists(self.output_pcap))
 
-        with PcapReader(self.output_pcap) as carved_reader:
+        with PcapngReader(self.output_pcap) as carved_reader:
             carved_pkts = list(carved_reader.packets())
             self.assertEqual(len(carved_pkts), 1)
             self.assertEqual(carved_pkts[0].src_ip, pkts[0].src_ip)
