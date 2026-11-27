@@ -285,3 +285,36 @@ class TestPipelineParity(TempDirCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestThreatIntelExport(unittest.TestCase):
+    def _alert(self, src="10.0.0.5", dst="2001:db8::7"):
+        from netshark.model import Alert, KillChainStage, Severity
+        return Alert("ALT-X-000001", "RULE-X", "t", "d", Severity.HIGH, KillChainStage.COMMAND_AND_CONTROL,
+                     src, dst, 50000, 443, "6", 1_700_000_000_000_000)
+
+    def test_bundle_is_spec_shaped_and_deterministic(self):
+        """Bugs: nested custom_properties, 'indicates' to observed-data, IPv6 typed as ipv4-addr, random IDs."""
+        from netshark.report.stix_export import build_stix21_bundle
+        a, b = build_stix21_bundle([self._alert()]), build_stix21_bundle([self._alert()])
+        self.assertEqual([o["id"] for o in a["objects"]], [o["id"] for o in b["objects"]])
+        by_type = {}
+        for o in a["objects"]:
+            by_type.setdefault(o["type"], []).append(o)
+        ind = by_type["indicator"][0]
+        self.assertNotIn("custom_properties", ind)
+        self.assertEqual(ind["x_netshark_rule_id"], "RULE-X")
+        self.assertEqual(by_type["relationship"][0]["relationship_type"], "based-on")
+        self.assertIn("ipv6-addr", by_type)
+        self.assertEqual(by_type["network-traffic"][0]["protocols"], ["tcp"])
+        self.assertTrue(ind["pattern"].startswith("[network-traffic:"))
+
+
+class TestTlsFingerprints(unittest.TestCase):
+    def test_grease_does_not_change_ja3(self):
+        """Bug: GREASE values were hashed, so one browser produced a new JA3 per connection."""
+        from netshark.modules.ja3_fingerprint import calculate_ja3_fingerprint, is_grease
+        self.assertTrue(is_grease(0x2A2A) and not is_grease(0x2A2B))
+        base = {"version": 771, "ciphers": [4865, 4866], "extensions": [0, 23], "supported_groups": [29], "ec_point_formats": [0]}
+        greased = dict(base, ciphers=[0x3A3A] + base["ciphers"], extensions=[0xBABA] + base["extensions"])
+        self.assertEqual(calculate_ja3_fingerprint(base)[1], calculate_ja3_fingerprint(greased)[1])
