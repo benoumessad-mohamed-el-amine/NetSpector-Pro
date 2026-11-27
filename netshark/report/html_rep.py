@@ -788,6 +788,14 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         if not self._host_allowed():
             self.send_error(403, "Forbidden host")
             return False
+        # Cross-site requests: a "simple" POST (text/plain) skips CORS preflight
+        # entirely, so without this any website the analyst visits could push a
+        # capture into the dashboard. Browsers always send Origin on such
+        # requests; same-origin page JS sends ours, and curl sends none.
+        origin = self.headers.get("Origin")
+        if origin is not None and origin not in {f"http://{h}" for h in self.allowed_hosts}:
+            self.send_error(403, "Cross-origin request refused")
+            return False
         return True
 
     def do_GET(self):

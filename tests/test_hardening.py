@@ -208,9 +208,11 @@ class TestDashboardServer(TempDirCase):
         os.chdir(self.cwd)
         super().tearDown()
 
-    def request(self, method, path, body=None, host=None):
+    def request(self, method, path, body=None, host=None, origin=None):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
         headers = {"Host": host or f"127.0.0.1:{self.port}"}
+        if origin:
+            headers["Origin"] = origin
         conn.request(method, path, body=body, headers=headers)
         resp = conn.getresponse()
         data = resp.read()
@@ -222,6 +224,13 @@ class TestDashboardServer(TempDirCase):
         status, _ = self.request("GET", "/api/history", host=f"evil.example:{self.port}")
         self.assertEqual(status, 403)
         self.assertEqual(self.request("GET", "/api/history")[0], 200)
+
+    def test_cross_site_post_rejected(self):
+        """Bug: a text/plain POST from any website skips preflight and reached /api/upload."""
+        status, _ = self.request("POST", "/api/upload", body=b"x", origin="https://evil.example")
+        self.assertEqual(status, 403)
+        status, _ = self.request("POST", "/api/upload", body=b"", origin=f"http://127.0.0.1:{self.port}")
+        self.assertEqual(status, 400)  # same-origin passes the guard (then fails on empty body)
 
     def test_capture_content_cannot_break_out_of_script(self):
         """Bug: report JSON was embedded raw, so '</script>' in a DNS name injected HTML."""
