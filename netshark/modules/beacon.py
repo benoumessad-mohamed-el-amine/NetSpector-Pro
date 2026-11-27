@@ -2,7 +2,7 @@
 
 import math
 from typing import Any, Dict, List
-from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity
+from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity, stable_id
 from netshark.modules import BaseModule
 
 
@@ -29,7 +29,12 @@ class C2BeaconModule(BaseModule):
         if flow.flow_id in self.evaluated_flows:
             return []
 
-        if flow.packet_count >= self.min_samples and flow.duration_sec >= self.min_duration_sec:
+        # _analyze_flow is O(n) in the flow's packet count. Running it on every
+        # packet made long non-beaconing flows O(n^2). Re-checking only when the
+        # count hits a power of two keeps total work O(n) while still alerting
+        # mid-capture; anything missed between checkpoints is caught on close.
+        n = flow.packet_count
+        if n >= self.min_samples and (n & (n - 1)) == 0 and flow.duration_sec >= self.min_duration_sec:
             alerts = self._analyze_flow(flow)
             if alerts:
                 self.evaluated_flows.add(flow.flow_id)
@@ -90,7 +95,7 @@ class C2BeaconModule(BaseModule):
         # Evaluate against low-variance beacon criteria
         if cov <= self.max_cov and mad_ratio <= self.max_mad_ratio:
             alert = Alert(
-                alert_id=f"ALT-BEACON-{abs(hash(flow.flow_id)) % 1000000:06d}",
+                alert_id=f"ALT-BEACON-{stable_id(flow.flow_id):06d}",
                 rule_id="RULE-C2-BEACON-01",
                 title="Command & Control (C2) Beaconing Pattern Detected",
                 description=(

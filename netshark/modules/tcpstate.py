@@ -1,7 +1,7 @@
 """Module 3: TCP State Auditor and Scan Detector."""
 
 from typing import Any, Dict, List, Set
-from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity
+from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity, stable_id
 from netshark.modules import BaseModule
 
 
@@ -79,7 +79,7 @@ class TcpStateModule(BaseModule):
             if unique_targets >= self.syn_scan_threshold and src_ip not in self.alerted_scanners:
                 self.alerted_scanners.add(src_ip)
                 scan_alert = Alert(
-                    alert_id=f"ALT-TCPSCAN-{abs(hash(src_ip)) % 1000000:06d}",
+                    alert_id=f"ALT-TCPSCAN-{stable_id(src_ip):06d}",
                     rule_id="RULE-TCP-SCAN-01",
                     title="TCP Half-Open SYN Port Scan Detected",
                     description=(
@@ -123,7 +123,7 @@ class TcpStateModule(BaseModule):
 
         if anomaly_type:
             return Alert(
-                alert_id=f"ALT-FLAGANOM-{abs(hash(pkt.file_offset)) % 1000000:06d}",
+                alert_id=f"ALT-FLAGANOM-{stable_id(pkt.file_offset):06d}",
                 rule_id="RULE-TCP-FLAGS-01",
                 title=f"TCP Flag Anomaly: {anomaly_type}",
                 description=f"Packet from {pkt.src_ip} contains illegal or stealth scan flag combination: {get_flag_names(flags)}.",

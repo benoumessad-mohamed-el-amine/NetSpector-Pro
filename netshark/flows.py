@@ -31,7 +31,9 @@ class FlowTable:
     def __init__(self, max_capacity: int = 200_000):
         self.max_capacity = max_capacity
         self._table: OrderedDict[str, Flow] = OrderedDict()
-        self.closed_flows: Dict[str, Flow] = {}
+        # Only a count is kept: retaining every evicted Flow (and its packet
+        # refs) would make memory grow with capture size despite the LRU cap.
+        self.closed_count: int = 0
         self.on_flow_evict_callbacks: list[Callable[[Flow], None]] = []
 
     def register_evict_callback(self, callback: Callable[[Flow], None]):
@@ -73,7 +75,7 @@ class FlowTable:
         flow = self._table.pop(flow_id, None)
         if flow:
             flow.closed = True
-            self.closed_flows[flow_id] = flow
+            self.closed_count += 1
             for cb in self.on_flow_evict_callbacks:
                 cb(flow)
         return flow
@@ -84,7 +86,7 @@ class FlowTable:
             return
         _, evicted_flow = self._table.popitem(last=False)
         evicted_flow.closed = True
-        self.closed_flows[evicted_flow.flow_id] = evicted_flow
+        self.closed_count += 1
         for cb in self.on_flow_evict_callbacks:
             cb(evicted_flow)
 
@@ -92,6 +94,10 @@ class FlowTable:
         """Flushes all remaining flows in table when capture processing completes."""
         while self._table:
             self._evict_lru()
+
+    @property
+    def total_flows(self) -> int:
+        return self.closed_count + len(self._table)
 
     def __len__(self) -> int:
         return len(self._table)

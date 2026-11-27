@@ -6,7 +6,7 @@ from netshark.model import Alert, Flow, PacketRef
 
 
 class BaseModule(ABC):
-    """Abstract contract interface for all NetSpector Pro detection modules."""
+    """Abstract contract interface for all NetShark detection modules."""
 
     def __init__(self, name: str):
         self.name = name

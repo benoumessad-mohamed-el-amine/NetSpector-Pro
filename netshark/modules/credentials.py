@@ -3,7 +3,7 @@
 import base64
 import re
 from typing import Any, Dict, List, Optional, Tuple
-from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity
+from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity, stable_id
 from netshark.modules import BaseModule
 
 
@@ -61,7 +61,7 @@ class CleartextCredentialsModule(BaseModule):
             masked_pass = "*" * len(password) if password else "<none>"
 
             alert = Alert(
-                alert_id=f"ALT-CRED-{abs(hash(flow.flow_id)) % 1000000:06d}",
+                alert_id=f"ALT-CRED-{stable_id(flow.flow_id):06d}",
                 rule_id="RULE-CRED-CLEARTEXT-01",
                 title=f"Exposed Cleartext Credentials Detected ({cred_type})",
                 description=(

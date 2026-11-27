@@ -2,7 +2,7 @@
 
 import hashlib
 from typing import Any, Dict, List, Optional
-from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity
+from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity, stable_id
 from netshark.modules import BaseModule
 
 
@@ -78,7 +78,7 @@ class Ja3FingerprintModule(BaseModule):
 
         if malware_match:
             alert = Alert(
-                alert_id=f"ALT-JA3-{abs(hash(ja3_hash)) % 1000000:06d}",
+                alert_id=f"ALT-JA3-{stable_id(ja3_hash):06d}",
                 rule_id="RULE-TLS-JA3-01",
                 title=f"Malicious TLS JA3 Fingerprint: {malware_match}",
                 description=(

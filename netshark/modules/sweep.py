@@ -1,7 +1,7 @@
 """Module 7: Stealth Port Scan & Horizontal Subnet Sweep Detector."""
 
 from typing import Any, Dict, List, Set
-from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity
+from netshark.model import Alert, Flow, KillChainStage, PacketRef, Severity, stable_id
 from netshark.modules import BaseModule
 
 
@@ -56,7 +56,7 @@ class SubnetSweepModule(BaseModule):
             ports_sample = sorted(list(self.sweeper_ports[src_ip]))[:5]
 
             alert = Alert(
-                alert_id=f"ALT-SWEEP-{abs(hash(src_ip)) % 1000000:06d}",
+                alert_id=f"ALT-SWEEP-{stable_id(src_ip):06d}",
                 rule_id="RULE-RECON-SWEEP-01",
                 title="Horizontal Subnet Reconnaissance Sweep Detected",
                 description=(
